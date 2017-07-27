@@ -25,17 +25,13 @@ WORK_DIRECTORY = '../../data'
 IMAGE_SIZE = 28
 NUM_CHANNELS = 1
 PIXEL_DEPTH = 255
-#VALIDATION_SIZE = 5000  # Size of the validation set.
 BATCH_SIZE = 512
-#BATCH_SIZE_EVAL = 2048
 K = 15
-N = 5
+N = 10
 learning_rate = 0.001
 
 num_epochs = 10
-#epochs_per_checkpoint = 2
 
-#from_pretrained_weights = False
 
 from optparse import OptionParser
 parser = OptionParser()
@@ -46,8 +42,8 @@ parser.add_option('-s', '--mode', action='store', dest='mode',
 
 ######################################## Models architectures ########################################
 #recognition_net = {"ninput":IMAGE_SIZE*IMAGE_SIZE,"nhidden_1":500,"nhidden_2":500,"noutput":N*(N+1)}
-recognition_net = {"ninput":IMAGE_SIZE*IMAGE_SIZE,"nhidden_1":100,"nhidden_2":100,"noutput":2*N}
-generator_net = {"ninput":N,"nhidden_1":100,"nhidden_2":100,"noutput":IMAGE_SIZE*IMAGE_SIZE}
+recognition_net = {"ninput":IMAGE_SIZE*IMAGE_SIZE,"nhidden_1":40,"nhidden_2":40,"noutput":2*N}
+generator_net = {"ninput":N,"nhidden_1":40,"nhidden_2":40,"noutput":IMAGE_SIZE*IMAGE_SIZE}
 nets_archi = {"recog":recognition_net,"gener":generator_net}
 
 ######################################## Data processing ########################################
@@ -69,14 +65,13 @@ def maybe_download(filename):
 
 def extract_data(filename, num_images):
     """Extract the images into a 4D tensor [image index, y, x, channels].
-    Values are rescaled from [0, 255] down to [-0.5, 0.5].
+    Values are rescaled from [0, 255] down to [0.0, 1.0].
     """
     print('Extracting', filename)
     with gzip.open(filename) as bytestream:
         bytestream.read(16)
         buf = bytestream.read(IMAGE_SIZE * IMAGE_SIZE * num_images * NUM_CHANNELS)
         data = np.frombuffer(buf, dtype=np.uint8).astype(np.float32)
-        #data = (data - (PIXEL_DEPTH / 2.0)) / PIXEL_DEPTH
         data = (data) / PIXEL_DEPTH
         data = data.reshape(num_images, IMAGE_SIZE, IMAGE_SIZE, NUM_CHANNELS)
         return data
@@ -93,26 +88,18 @@ def extract_labels(filename, num_images):
 def get_data():
     # download the data id needed
     train_data_filename = maybe_download('train-images-idx3-ubyte.gz')
-    train_labels_filename = maybe_download('train-labels-idx1-ubyte.gz')
+    #train_labels_filename = maybe_download('train-labels-idx1-ubyte.gz')
     test_data_filename = maybe_download('t10k-images-idx3-ubyte.gz')
-    test_labels_filename = maybe_download('t10k-labels-idx1-ubyte.gz')
+    #test_labels_filename = maybe_download('t10k-labels-idx1-ubyte.gz')
     # Extract it into numpy arrays.
     train_data = extract_data(train_data_filename, 60000)
-    train_labels = extract_labels(train_labels_filename, 60000)
+    #train_labels = extract_labels(train_labels_filename, 60000)
     test_data = extract_data(test_data_filename, 10000)
-    test_labels = extract_labels(test_labels_filename, 10000)
+    #test_labels = extract_labels(test_labels_filename, 10000)
     # Merge train and test_data
     data = np.concatenate((train_data,test_data))
     #labels = np.concatenate(train_labels,test_labels)
-    """
-    # Generate a validation set.
-    validation_data = train_data[:VALIDATION_SIZE, ...]
-    validation_labels = train_labels[:VALIDATION_SIZE]
-    train_data = train_data[VALIDATION_SIZE:, ...]
-    train_labels = train_labels[VALIDATION_SIZE:]
-    return train_data, train_labels, validation_data, validation_labels, test_data, test_labels
-    """
-    return data#, labels
+    return data
 
 def get_batches(images, batch_size=BATCH_SIZE):
     batches = []
@@ -153,15 +140,16 @@ def main(nets_archi,data,mode_):
                                     batch_size=BATCH_SIZE)
 
     ###### Initialize parameters ######
-    (pi,(mu,sigma)) = svae_._initit_params(recognition_net,generator_net)
+    cat_mean,gauss_mean = svae_._initit_params(recognition_net,generator_net)
+    #mu = tf.expand_dims(gauss_mean[:,:,0],axis=-1)
+    #sigma = gauss_mean[:,:,1:]
     # We need to tile the natural parameters for each inputs in batch (inputs are iid)
     tile_shape = [BATCH_SIZE,1,1,1]
-    mu_tiled = tf.tile(tf.expand_dims(mu,0),tile_shape)# shape: [batch,n_mixtures,dim,1]
-    sigma_tiled = tf.tile(tf.expand_dims(sigma,0),tile_shape)# shape: [batch,n_mixtures,dim,dim]
-    pi_tiled = tf.tile(tf.expand_dims(pi,0),tile_shape[:-1])# shape: [batch,n_mixtures,1]
+    gauss_mean_tiled = tf.tile(tf.expand_dims(gauss_mean,0),tile_shape)# shape: [batch,n_mixtures,dim,1+dim]
+    cat_mean_tiled = tf.tile(tf.expand_dims(cat_mean,0),tile_shape[:-1])# shape: [batch,n_mixtures,1]
     # We convert the mean parameters to natural parameters
-    gaussian_global = svae_.gaussian.standard_to_natural((mu_tiled,sigma_tiled))
-    label_global = svae_.labels.standard_to_natural(pi_tiled)
+    gaussian_global = svae_.gaussian.standard_to_natural(gauss_mean_tiled)
+    label_global = svae_.labels.standard_to_natural(cat_mean_tiled)
     # Initialize the labels expected stats for the block ascent algorithm
     labels_stats_init = tf.random_normal([BATCH_SIZE,K,1], mean=0.0, stddev=1.0, dtype=data_type())# shape: [batch,K,1]
 
@@ -231,18 +219,24 @@ def main(nets_archi,data,mode_):
                     train_l += l / len(batches)
                 if train_l>best_l:
                     best_l = train_l
-                """
-                Test for ploting images
+                #Test for ploting images
                 piy= sess.run(svae_.y_reconstr_mean, feed_dict={y: data[:BATCH_SIZE]})
-                images = np.reshape(piy,[-1,IMAGE_SIZE,IMAGE_SIZE])*255.0 #shape: [batch, 28, 28]
-                images =  images.astype("int32")
+                init = np.reshape(data[:BATCH_SIZE],[-1,IMAGE_SIZE,IMAGE_SIZE])*255.0 #shape: [batch, 28, 28]
+                init = init.astype("int32")
+                gene = np.reshape(piy,[-1,IMAGE_SIZE,IMAGE_SIZE])*255.0 #shape: [batch, 28, 28]
+                gene =  gene.astype("int32")
                 for i in range(10):
                     fig = plt.figure()
-                    plt.imshow(images[i], cmap="gray", interpolation=None)
+                    # original image
+                    plt.subplot(1,2,1)
+                    plt.imshow(init[i], cmap="gray", interpolation=None)
+                    plt.axis("on")
+                    # generated image
+                    plt.subplot(1,2,2)
+                    plt.imshow(gene[i], cmap="gray", interpolation=None)
                     plt.axis("on")
                     fig.savefig("im" + str(i) + ".png")
                     plt.close()
-                """
 
                 # Print info for previous epoch
                 print("Epoch {} done, took {:.2f}s, learning rate: {:.2f}e-3".format(epoch,time.time()-start_time,learning_rate))
