@@ -9,10 +9,8 @@ import nn
 
 
 ## Initialize seeds
-np.random.seed(0)
 tf.set_random_seed(0)
-eps = 0.0000001
-
+eps = 0.000001
 
 ######################################## Utils functions ########################################
 # Initialization of discrete params
@@ -20,14 +18,11 @@ def init_cat(n_mixtures,dtype=tf.float32):
     """
     Initialize parameters of discrete distribution following dirichlet
     """
-    discr_mean = tf.Variable(tf.ones(shape=[n_mixtures,1], dtype=dtype))# shape: [n_mixtures,1]
+    #discr_mean = tf.Variable(tf.ones(shape=[n_mixtures,1], dtype=dtype))# shape: [n_mixtures,1]
+    discr_mean = tf.Variable(tf.random_normal([n_mixtures,1], mean=0.0, stddev=1.0, dtype=dtype))# shape: [n_mixtures,1]
     # we use softmax to ensure the mean components sum to one
-    soft_max = tf.nn.softmax(discr_mean)
+    soft_max = tf.nn.softmax(discr_mean,dim=0)
     return soft_max
-    """
-    mean_list = [soft_max for i in range(batch_size)]
-    return tf.stack(mean_list,axis=0)# shape: [batch,n_mixtures,1]
-    """
 
 # Initialization of mean and covariance matrix
 def init_gaussian(n_mixtures,dim,dtype=tf.float32):
@@ -36,15 +31,8 @@ def init_gaussian(n_mixtures,dim,dtype=tf.float32):
     """
     mu = tf.Variable(tf.random_normal([n_mixtures,dim,1], mean=0.0, stddev=1.0, dtype=dtype))# shape: [n_mixtures,dim,1]
     # We have to enforce the covariance to be psd
-    diag = tf.Variable(tf.random_normal([n_mixtures,dim],mean=0.0, stddev=1.0, dtype=dtype))# shape: [n_mixtures,dim,dim]
+    diag = tf.Variable(tf.random_normal([n_mixtures,dim],mean=10.0, stddev=1.0, dtype=dtype))# shape: [n_mixtures,dim,dim]
     sigma = tf.matrix_diag(tf.square(diag))# shape: [n_mixtures,dim,dim]
-    sigma = tf.maximum(eps*tf.eye(dim,batch_shape=[n_mixtures],dtype=dtype),sigma)
-    """
-    If we want sigma to be not diag only
-    #sigma = tf.Variable(tf.random_normal([n_mixtures,dim,dim],mean=0.0, stddev=1.0, dtype=dtype))# shape: [n_mixtures,dim,dim]
-    #sigma = tf.matmul(sigma, tf.transpose(sigma,perm=[0,2,1]))
-    #sigma = tf.add(sigma,tf.scalar_mul(eps,tf.eye(dim,dtype=dtype)))# shape: [n_mixtures,dim,dim]
-    """
     return tf.concat([mu,sigma],axis=-1) # shape: [n_mixtures,dim,1+dim]
 
 def sample_gaussian(mean_params,dtype=tf.float32):
@@ -53,10 +41,32 @@ def sample_gaussian(mean_params,dtype=tf.float32):
     """
     mu = tf.squeeze(mean_params[:,:,:,0])
     shape = mu.get_shape().as_list() + [1]
-    sigma = mean_params[:,:,:,1:]
+    sigma = mean_params[:,:,:,1:]+eps*tf.eye(shape[1],batch_shape=[shape[0],1])
     norm = tf.random_normal(shape, mean=0.0, stddev=1.0, dtype=dtype)
     chol = tf.cholesky(tf.squeeze(sigma))
     return tf.add(mu,tf.squeeze(tf.matmul(chol,norm),axis=-1))
+
+def vec(x):
+    """
+    vec operator stacking columns of x
+    shape:
+        - x:  [batch,K,N,M]
+    return vec of the matrix formed by the inner-most 2 dim, shape: [batch,K,N*M]
+    """
+    [K,N,M] = x.get_shape().as_list()[-3:]
+    return tf.reshape(tf.transpose(x,perm=[0,1,3,2]),[-1,K,N*M])
+
+def devec(x,N,M):
+    """
+    perfom inverse of vec operator
+    shape:
+        - x:  [batch,K,N*M]
+    return tensor whose the inner-most 2 dim are formed by concatening
+    the columns over the last dimension, shape: [batch,K,N*M]
+    """
+    K = x.get_shape().as_list()[-2]
+    return tf.transpose(tf.reshape(x,[-1,K,M,N]),perm=[0,1,3,2])
+
 
 def data_type():
     """Return the type of the activations, weights, and placeholder variables."""
@@ -70,8 +80,7 @@ class SVAE(object):
     See "Composing graphical models with neural networks for structured representations and fast inference"
     by Johnson for more details.
     """
-    def __init__(self, K=10, N=20, P=784,learning_rate=0.001,
-                                            batch_size=100):
+    def __init__(self, K=10, N=20, P=784, max_iter=20, learning_rate=0.001):
         """
         run inference and compute objective and optimizers for the SVAE algorithm
         network_architecture: architectures of the recognition and generator networks
@@ -83,8 +92,8 @@ class SVAE(object):
         self.K=K
         self.N=N
         self.P=P
+        self.max_iter = max_iter
         self.learning_rate = learning_rate
-        self.batch_size = batch_size
         # Define the distributions of the model
         self._set_distributions()
 
@@ -112,7 +121,7 @@ class SVAE(object):
         recog_mu = tf.reshape(recog_out[:,:self.N],[-1,1,self.N,1])# shape: [batch,1,N,1]
         recog_sigma = tf.expand_dims(tf.matrix_diag(tf.square(recog_out[:,self.N:])),axis=1)# shape: [batch,1,N,N]
         node_potential = self.gaussian.standard_to_natural(tf.concat([recog_mu,recog_sigma],axis=-1))# shape: [batch,1,N,1+N]
-        node_potential = tf.reshape(node_potential,[-1,self.N*(self.N+1)])# shape: [batch,N*(1+N)]
+        node_potential = tf.squeeze(vec(node_potential),axis=1)# shape: [batch,N*(1+N)]
         return node_potential
 
     def _build_generator_net(self,input_):
@@ -149,7 +158,7 @@ class SVAE(object):
             - label_global:     [batch,K,1]
             - label_stats:     [batch,K,1]
         """
-        max_iter=20
+        max_iter=10
         label_stats_ = label_stats
         # block ascent to find partial optimizers
         for i in range(max_iter):
@@ -168,14 +177,14 @@ class SVAE(object):
             - label_stats:      [batch,K,1]
         """
         # compute the potential
-        gaussian_global_flat = tf.reshape(gaussian_global,[-1,self.K,self.N*(self.N+1)])# shape: [batch,K,N(N+1)]
+        gaussian_global_flat = vec(gaussian_global)# shape: [batch,K,N(N+1)]
         global_potentials = tf.squeeze(tf.matmul(tf.transpose(label_stats,perm=[0,2,1]),gaussian_global_flat),axis=1)# shape: [batch,N(N+1)]
         # update gaussian natparams
-        natparam = tf.reshape(tf.add(node_potential,global_potentials),[-1,1,self.N,self.N+1])# shape: [batch,1,N,N+1]
+        natparam = devec(tf.expand_dims(tf.add(node_potential,global_potentials),axis=1),self.N,self.N+1)# shape: [batch,1,N,N+1]
         # get gaussian expected stats from updated natparams
         stats = self.gaussian.expectedstats(natparam)# shape: [batch,1,N,N+1]
         # compute gaussian kl
-        stats_flat = tf.reshape(stats, [-1,self.N*(self.N+1)])# shape: [batch,N*(N+1)]
+        stats_flat = vec(stats)
         dot_product = tf.reduce_sum(tf.multiply(stats_flat,node_potential),axis=-1,keep_dims=True)# shape: [batch,1]
         kl = dot_product - tf.squeeze(self.gaussian.logZ(natparam),axis=-1)
         return natparam, stats, kl
@@ -189,8 +198,8 @@ class SVAE(object):
             - gaussian_stats:   [batch,1,N,N+1]
         """
         # compute the potential
-        gaussian_global_flat = tf.reshape(gaussian_global,[-1,self.K,self.N*(self.N+1)])# shape: [batch,K,N(N+1)]
-        gaussian_stats_flat = tf.reshape(gaussian_stats, [-1,1,self.N*(self.N+1)])# shape: [batch,1,N(N+1)]
+        gaussian_global_flat = vec(gaussian_global)# shape: [batch,K,N(N+1)]
+        gaussian_stats_flat = vec(gaussian_stats)# shape: [batch,1,N*(N+1)]
         global_potentials = tf.matmul(gaussian_global_flat,tf.transpose(gaussian_stats_flat,perm=[0,2,1]))# shape: [batch,K,1]
         # update labels natparams
         natparam = (global_potentials - self.gaussian.logZ(gaussian_global)) + label_global# shape: [batch,K,1]
@@ -215,16 +224,16 @@ class SVAE(object):
         # Compute partial optimizers for surrogate objective
         label_stats = self._meanfield_fixed_point(self.node_potential,gaussian_global,label_global,label_stats_init)# shape: [batch,K,1]
         # Compute local KL with partial otimized parameters
-        local_KL, (labels_natparams,gaussian_natparams) = self._local_meanfield(self.node_potential,gaussian_global,label_global,label_stats)
+        self.local_KL, (labels_natparams,gaussian_natparams) = self._local_meanfield(self.node_potential,gaussian_global,label_global,label_stats)
         # Sample x from q, pass to generatornet
-        self.gauss_mean = self.gaussian.natural_to_standard(gaussian_natparams)
-        x = sample_gaussian(self.gauss_mean)# shape: [batch,N]
+        gauss_mean = self.gaussian.natural_to_standard(gaussian_natparams)
+        x = sample_gaussian(gauss_mean)# shape: [batch,N]
         # Build generator network and compute params of the obs variables from samples
         logits = self._build_generator_net(x)# shape: [batch,IMAGE_SIZE*IMAGE_SIZE]
         self.y_reconstr_mean = tf.sigmoid(logits)
         # Compute loglikeihood term
         loglikelihood = tf.nn.softmax_cross_entropy_with_logits(labels=y,logits=logits)
         # Compute SVAE objective
-        self.SVAE_obj = tf.reduce_mean(loglikelihood) - tf.reduce_sum(local_KL)# average over batch
+        self.SVAE_obj = tf.reduce_mean(loglikelihood) - tf.reduce_sum(self.local_KL)# average over batch
         # Optimizer
         self.optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.SVAE_obj)

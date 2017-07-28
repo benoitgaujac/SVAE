@@ -26,10 +26,10 @@ IMAGE_SIZE = 28
 NUM_CHANNELS = 1
 PIXEL_DEPTH = 255
 BATCH_SIZE = 512
-K = 15
-N = 10
+K = 10
+N = 15
 learning_rate = 0.001
-
+niter = 20
 num_epochs = 10
 
 
@@ -42,8 +42,8 @@ parser.add_option('-s', '--mode', action='store', dest='mode',
 
 ######################################## Models architectures ########################################
 #recognition_net = {"ninput":IMAGE_SIZE*IMAGE_SIZE,"nhidden_1":500,"nhidden_2":500,"noutput":N*(N+1)}
-recognition_net = {"ninput":IMAGE_SIZE*IMAGE_SIZE,"nhidden_1":40,"nhidden_2":40,"noutput":2*N}
-generator_net = {"ninput":N,"nhidden_1":40,"nhidden_2":40,"noutput":IMAGE_SIZE*IMAGE_SIZE}
+recognition_net = {"ninput":IMAGE_SIZE*IMAGE_SIZE,"nhidden_1":100,"nhidden_2":100,"noutput":2*N}
+generator_net = {"ninput":N,"nhidden_1":100,"nhidden_2":100,"noutput":IMAGE_SIZE*IMAGE_SIZE}
 nets_archi = {"recog":recognition_net,"gener":generator_net}
 
 ######################################## Data processing ########################################
@@ -136,13 +136,11 @@ def main(nets_archi,data,mode_):
     recognition_net = nets_archi["recog"]
     generator_net = nets_archi["gener"]
     svae_ = svae.SVAE(K=K, N=N, P=IMAGE_SIZE*IMAGE_SIZE,
-                                    learning_rate=learning_rate,
-                                    batch_size=BATCH_SIZE)
+                                max_iter=niter,
+                                learning_rate=learning_rate)
 
     ###### Initialize parameters ######
     cat_mean,gauss_mean = svae_._initit_params(recognition_net,generator_net)
-    #mu = tf.expand_dims(gauss_mean[:,:,0],axis=-1)
-    #sigma = gauss_mean[:,:,1:]
     # We need to tile the natural parameters for each inputs in batch (inputs are iid)
     tile_shape = [BATCH_SIZE,1,1,1]
     gauss_mean_tiled = tf.tile(tf.expand_dims(gauss_mean,0),tile_shape)# shape: [batch,n_mixtures,dim,1+dim]
@@ -151,7 +149,7 @@ def main(nets_archi,data,mode_):
     gaussian_global = svae_.gaussian.standard_to_natural(gauss_mean_tiled)
     label_global = svae_.labels.standard_to_natural(cat_mean_tiled)
     # Initialize the labels expected stats for the block ascent algorithm
-    labels_stats_init = tf.random_normal([BATCH_SIZE,K,1], mean=0.0, stddev=1.0, dtype=data_type())# shape: [batch,K,1]
+    labels_stats_init = tf.tile(tf.expand_dims(tf.random_normal([K,1], mean=0.0, stddev=1.0, dtype=data_type()),0),tile_shape[:-1])# shape: [batch,K,1]
 
     ###### Build loss and optimizer ######
     svae_._create_loss_optimizer(gaussian_global,label_global,labels_stats_init,y)
@@ -213,6 +211,16 @@ def main(nets_archi,data,mode_):
                 print(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
                 batches = get_batches(data, BATCH_SIZE)
                 for batch in batches:
+                    """
+                    gmean,gglobal,gstats,log,lglobal,lstats = sess.run([gauss_mean_tiled,gaussian_global,gaussian_expectedstats,logZ,label_global,labels_stats_init], feed_dict={y: batch})
+                    gglobal_flat = tf.reshape(tf.transpose(gglobal,perm=[0,1,3,2]),[-1,K,N*(N+1)]).eval()
+                    gglobal_reshape = tf.transpose(tf.reshape(gglobal_flat,[-1,1,N+1,N]),perm=[0,1,3,2]).eval()
+                    global_potentials = tf.squeeze(tf.matmul(tf.transpose(lstats,perm=[0,2,1]),gglobal_flat),axis=1).eval()
+                    gstats_flat = tf.reshape(tf.transpose(tf.expand_dims(gstats[0],axis=1),perm=[0,1,3,2]), [-1,N*(N+1)]).eval()# shape: [batch,N*(N+1)]
+                    dot_product = tf.reduce_sum(tf.multiply(gstats_flat,global_potentials),axis=-1,keep_dims=True).eval()# shape: [batch,1]
+                    log_test = 0.5*(np.dot(np.dot(np.transpose(gmean[0,0,:,0]),np.linalg.inv(gmean[0,0,:,1:])),gmean[0,0,:,0])+np.log(np.linalg.det(gmean[0,0,:,1:]))+N*np.log([2*3.14159265359]))
+                    pdb.set_trace()
+                    """
                     # Run the optimizer to update weights and get loss.
                     _,l= sess.run([svae_.optimizer,svae_.SVAE_obj], feed_dict={y: batch})
                     # Update average loss and accuracy
@@ -239,7 +247,7 @@ def main(nets_archi,data,mode_):
                     plt.close()
 
                 # Print info for previous epoch
-                print("Epoch {} done, took {:.2f}s, learning rate: {:.2f}e-3".format(epoch,time.time()-start_time,learning_rate))
+                print("Epoch {} done, took {:.2f}s, learning rate: {:.2f}e-3".format(epoch,time.time()-start_time,learning_rate*1000))
                 print("Epoch loss: {:.4f}, Best train loss: {:.4f}".format(train_l,best_l))
                 """
                 # Writing csv file with results and saving models
@@ -272,7 +280,7 @@ def main(nets_archi,data,mode_):
 if __name__ == '__main__':
     ###### Load and get data ######
     data = get_data()
-    data = data[:5000]
+    data = data[:10000]
     # Reshape data
     data = np.reshape(data,[-1,IMAGE_SIZE*IMAGE_SIZE])
     # Convert to binary

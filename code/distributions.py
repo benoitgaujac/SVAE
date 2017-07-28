@@ -2,8 +2,10 @@ import tensorflow as tf
 import abc
 
 import pdb
+import svae
 
 pi = 3.14159265359
+eps = svae.eps
 
 class distributions(metaclass=abc.ABCMeta):
     """
@@ -46,7 +48,8 @@ class gaussian(distributions):
             - mean_params:      [batch,K,N,1+N]
         """
         mu = tf.expand_dims(mean_params[:,:,:,0],axis=-1)# shape: [batch,n_mixtures,dim,1]
-        inverse_sigma = tf.matrix_inverse(mean_params[:,:,:,1:]) # shape: [batch,n_mixtures,dim,dim]
+        [K,N] = mu.get_shape().as_list()[1:3]
+        inverse_sigma = tf.matrix_inverse(mean_params[:,:,:,1:]+eps*tf.eye(N,batch_shape=[K])) # shape: [batch,n_mixtures,dim,dim]
         sigmu = tf.matmul(inverse_sigma, mu) # shape: [batch,n_mixtures,dim,1]
         gaussian_natparams = tf.concat([sigmu,-0.5*inverse_sigma],axis=-1) # shape: [batch,n_mixtures,dim,1+dim]
         return gaussian_natparams # shape: [batch,n_mixtures,dim,1+dim]
@@ -57,7 +60,8 @@ class gaussian(distributions):
         shape:
             - nat_params:      [batch,K,N,N+1]
         """
-        sigma = -0.5*tf.matrix_inverse(nat_params[:,:,:,1:]) # shape: [batch,n_mixtures,dim,dim]
+        [K,N] = nat_params.get_shape().as_list()[1:3]
+        sigma = -0.5*tf.matrix_inverse(nat_params[:,:,:,1:]+eps*tf.eye(N,batch_shape=[K])) # shape: [batch,n_mixtures,dim,dim]
         mu = tf.matmul(sigma,tf.expand_dims(nat_params[:,:,:,0],axis=-1))# shape: [batch,n_mixtures,dim,1]
         return tf.concat([mu,sigma],axis=-1) # shape: [batch,n_mixtures,dim,1+dim]
 
@@ -83,11 +87,10 @@ class gaussian(distributions):
         mu = tf.expand_dims(mean_params[:,:,:,0],axis=-1)# shape: [batch,n_mixtures,dim,1]
         sigma = mean_params[:,:,:,1:]# shape: [batch,n_mixtures,dim,dim]
         #logdet
-        N = sigma.get_shape().as_list()[-1]
-        logdet = tf.expand_dims(tf.log(tf.matrix_determinant(sigma)),axis=-1) + N*tf.log([2.0*pi])# shape: [batch,n_mixtures,1]
+        [K,N] = nat_params.get_shape().as_list()[1:3]
+        logdet = tf.expand_dims(tf.log(tf.matrix_determinant(sigma)+eps*tf.ones([K])),axis=-1) + N*tf.log([2.0*pi])# shape: [batch,n_mixtures,1]
         # Quadratic term
         mu_t = tf.transpose(mu, perm=[0,1,3,2]) # shape: [batch,n_mixtures,1,dim]
-        #sig_inverse = tf.matrix_inverse(sigma) # shape: [batch,n_mixtures,dim,dim]
         musigmu = tf.squeeze(tf.matmul(tf.matmul(mu_t,-2*nat_params[:,:,:,1:]),mu),axis=-1) # shape: [batch,n_mixtures,1]
         return tf.scalar_mul(0.5,tf.add(musigmu,logdet))
 
@@ -99,8 +102,8 @@ class discrete(distributions):
         return label_natparams
 
     def natural_to_standard(self, nat_params):
-        logmean = nat_params
-        label_standard = tf.exp(logmean)
+        #logmean = nat_params
+        label_standard = tf.exp(nat_params)
         return label_standard
 
     def expectedstats(self, nat_params):
