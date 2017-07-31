@@ -30,10 +30,10 @@ def init_gaussian(n_mixtures,dim,dtype=tf.float32):
     # mu
     mu = tf.Variable(tf.random_normal([n_mixtures,dim,1], mean=0.0, stddev=1.0, dtype=dtype))# shape: [n_mixtures,dim,1]
     # We have to enforce the covariance to be psd
-
     #Sigma
     # Sigma diagonal
-    diag = tf.Variable(tf.random_normal([n_mixtures,dim],mean=1.0, stddev=1.0, dtype=dtype))# shape: [n_mixtures,dim]
+    #diag = tf.Variable(tf.random_normal([n_mixtures,dim],mean=1.0, stddev=1.0, dtype=dtype))# shape: [n_mixtures,dim]
+    diag = tf.Variable(tf.ones(shape=[n_mixtures,dim], dtype=dtype))# shape: [n_mixtures,1]
     sigma = tf.matrix_diag(tf.abs(diag))# shape: [n_mixtures,dim,dim]
     """
     # General psd sigma
@@ -136,14 +136,14 @@ class SVAE(object):
         # Outout of NN encode mu and the diag of sigma
         recog_mu = tf.reshape(recog_out[:,:self.N],[-1,1,self.N,1])# shape: [batch,1,N,1]
         # Sigma diagonal
-        # we enforce it to be psd
-        recog_sigma = tf.expand_dims(tf.matrix_diag(tf.abs(recog_out[:,self.N:])),axis=1)# shape: [batch,1,N,N]
+        # we enforce it to be nsd
+        recog_sigma = tf.expand_dims(tf.matrix_diag(-tf.abs(recog_out[:,self.N:])),axis=1)# shape: [batch,1,N,N]
         """
         # General psd sigma
         recog_A = devec(tf.expand_dims(recog_out[:,self.N+1:],axis=1),self.N,self.N)# shape: [batch,1,N,N]
-        # we enforce it to be psd
+        # we enforce it to be nsd
         eps = tf.reshape(tf.abs(recog_out[:,self.N]),[-1,1,1,1])# shape: [batch,1,1,1]
-        recog_sigma = 0.5 * (recog_A + tf.transpose(recog_A,perm=[0,1,3,2])) + tf.multiply(tf.eye(self.N,batch_shape=[1,1]),eps)# shape: [batch,1,N,N]
+        recog_sigma = -(0.5 * (recog_A + tf.transpose(recog_A,perm=[0,1,3,2])) + tf.multiply(tf.eye(self.N,batch_shape=[1,1]),eps))# shape: [batch,1,N,N]
         """
         return tf.squeeze(vec(tf.concat([recog_mu,recog_sigma],axis=-1)),axis=1)# shape: [batch,N(N+1)]
 
@@ -181,14 +181,14 @@ class SVAE(object):
             - label_global:     [batch,K,1]
             - label_stats:     [batch,K,1]
         """
-        label_stats_ = label_stats
+        #label_stats_ = label_stats
         # block ascent to find partial optimizers
         for i in range(self.max_iter):
             gaussian_natparam, gaussian_stats, gaussian_kl = \
-                self._gaussian_meanfield(gaussian_global, node_potential, label_stats_)
-            label_natparam, label_stats_, label_kl = \
+                self._gaussian_meanfield(gaussian_global, node_potential, label_stats)
+            label_natparam, label_stats, label_kl = \
                 self._label_meanfield(label_global, gaussian_global, gaussian_stats)
-        return label_stats_
+        return label_stats
 
     def _gaussian_meanfield(self,gaussian_global, node_potential, label_stats):
         """
@@ -203,6 +203,7 @@ class SVAE(object):
         global_potentials = tf.squeeze(tf.matmul(tf.transpose(label_stats,perm=[0,2,1]),gaussian_global_flat),axis=1)# shape: [batch,N(N+1)]
         # update gaussian natparams
         natparam = devec(tf.expand_dims(tf.add(node_potential,global_potentials),axis=1),self.N,self.N+1)# shape: [batch,1,N,N+1]
+        self.natparam_test = natparam
         # get gaussian expected stats from updated natparams
         stats = self.gaussian.expectedstats(natparam)# shape: [batch,1,N,N+1]
         # compute gaussian kl
