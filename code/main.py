@@ -28,9 +28,9 @@ PIXEL_DEPTH = 255
 BATCH_SIZE = 512
 K = 10
 N = 20
-learning_rate = 0.001
-niter = 20
-num_epochs = 50
+learning_rate = 0.01
+niter = 10
+num_epochs = 30
 
 
 from optparse import OptionParser
@@ -41,7 +41,7 @@ parser.add_option('-s', '--mode', action='store', dest='mode',
     help="running mode in {train, test, inpainting} ")
 
 ######################################## Models architectures ########################################
-#recognition_net = {"ninput":IMAGE_SIZE*IMAGE_SIZE,"nhidden_1":500,"nhidden_2":500,"noutput":N*(N+1)}
+#recognition_net = {"ninput":IMAGE_SIZE*IMAGE_SIZE,"nhidden_1":500,"nhidden_2":500,"noutput":N*(N+1)+1}
 recognition_net = {"ninput":IMAGE_SIZE*IMAGE_SIZE,"nhidden_1":100,"nhidden_2":100,"noutput":2*N}
 generator_net = {"ninput":N,"nhidden_1":100,"nhidden_2":100,"noutput":IMAGE_SIZE*IMAGE_SIZE}
 nets_archi = {"recog":recognition_net,"gener":generator_net}
@@ -269,7 +269,7 @@ def main(nets_archi,data,mode_):
 if __name__ == '__main__':
     ###### Load and get data ######
     data = shuffle(get_data())
-    data = data[:5000]
+    data = data[:2000]
     # Reshape data
     data = np.reshape(data,[-1,IMAGE_SIZE*IMAGE_SIZE])
     # Convert to binary

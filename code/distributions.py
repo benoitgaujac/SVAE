@@ -5,8 +5,6 @@ import pdb
 import svae
 from math import pi
 
-#pi = 3.14159265359
-eps = svae.eps
 
 class distributions(metaclass=abc.ABCMeta):
     """
@@ -50,7 +48,7 @@ class gaussian(distributions):
         """
         mu = tf.expand_dims(mean_params[:,:,:,0],axis=-1)# shape: [batch,n_mixtures,dim,1]
         [K,N] = mu.get_shape().as_list()[1:3]
-        inverse_sigma = tf.matrix_inverse(mean_params[:,:,:,1:]+eps*tf.eye(N,batch_shape=[K])) # shape: [batch,n_mixtures,dim,dim]
+        inverse_sigma = tf.matrix_inverse(mean_params[:,:,:,1:]) # shape: [batch,n_mixtures,dim,dim]
         sigmu = tf.matrix_solve(mean_params[:,:,:,1:],mu)# shape: [batch,n_mixtures,dim,1]
         gaussian_natparams = tf.concat([sigmu,-0.5*inverse_sigma],axis=-1) # shape: [batch,n_mixtures,dim,1+dim]
         return gaussian_natparams # shape: [batch,n_mixtures,dim,1+dim]
@@ -62,7 +60,7 @@ class gaussian(distributions):
             - nat_params:      [batch,K,N,N+1]
         """
         [K,N] = nat_params.get_shape().as_list()[1:3]
-        sigma = -0.5*tf.matrix_inverse(nat_params[:,:,:,1:]+eps*tf.eye(N,batch_shape=[K])) # shape: [batch,n_mixtures,dim,dim]
+        sigma = -0.5*tf.matrix_inverse(nat_params[:,:,:,1:]) # shape: [batch,n_mixtures,dim,dim]
         mu = tf.matrix_solve(-2*nat_params[:,:,:,1:],tf.expand_dims(nat_params[:,:,:,0],axis=-1))# shape: [batch,n_mixtures,dim,1]
         return tf.concat([mu,sigma],axis=-1) # shape: [batch,n_mixtures,dim,1+dim]
 

@@ -10,7 +10,6 @@ import nn
 
 ## Initialize seeds
 tf.set_random_seed(0)
-eps = 0.0000
 
 ######################################## Utils functions ########################################
 # Initialization of discrete params
@@ -19,7 +18,6 @@ def init_cat(n_mixtures,dtype=tf.float32):
     Initialize parameters of discrete distribution following dirichlet
     """
     discr_mean = tf.Variable(tf.ones(shape=[n_mixtures,1], dtype=dtype))# shape: [n_mixtures,1]
-    #discr_mean = tf.Variable(tf.random_normal([n_mixtures,1], mean=0.0, stddev=1.0, dtype=dtype))# shape: [n_mixtures,1]
     # we use softmax to ensure the mean components sum to one
     soft_max = tf.nn.softmax(discr_mean,dim=0)
     return soft_max
@@ -29,10 +27,20 @@ def init_gaussian(n_mixtures,dim,dtype=tf.float32):
     """
     Initialize means and covariance matrix for the gaussian mixtures components
     """
+    # mu
     mu = tf.Variable(tf.random_normal([n_mixtures,dim,1], mean=0.0, stddev=1.0, dtype=dtype))# shape: [n_mixtures,dim,1]
     # We have to enforce the covariance to be psd
-    diag = tf.Variable(tf.random_normal([n_mixtures,dim],mean=1.0, stddev=1.0, dtype=dtype))# shape: [n_mixtures,dim,dim]
+
+    #Sigma
+    # Sigma diagonal
+    diag = tf.Variable(tf.random_normal([n_mixtures,dim],mean=1.0, stddev=1.0, dtype=dtype))# shape: [n_mixtures,dim]
     sigma = tf.matrix_diag(tf.abs(diag))# shape: [n_mixtures,dim,dim]
+    """
+    # General psd sigma
+    A = tf.Variable(tf.random_normal([n_mixtures,dim,dim],mean=1.0, stddev=1.0, dtype=dtype))# shape: [n_mixtures,dim,dim]
+    eps = tf.Variable(tf.random_normal([n_mixtures,1,1], mean=0.0, stddev=1.0, dtype=dtype))# shape: [n_mixtures,1,1]
+    sigma = 0.5 * (A + tf.transpose(A,perm=[0,2,1])) + tf.multiply(tf.eye(dim,batch_shape=[n_mixtures]),tf.abs(eps))# shape: [n_mixtures,dim,dim]
+    """
     return tf.concat([mu,sigma],axis=-1) # shape: [n_mixtures,dim,1+dim]
 
 def sample_gaussian(mean_params,dtype=tf.float32):
@@ -41,7 +49,7 @@ def sample_gaussian(mean_params,dtype=tf.float32):
     """
     mu = tf.squeeze(mean_params[:,:,:,0])
     shape = mu.get_shape().as_list() + [1]
-    sigma = mean_params[:,:,:,1:]+eps*tf.eye(shape[1],batch_shape=[shape[0],1])
+    sigma = mean_params[:,:,:,1:]
     chol = tf.cholesky(tf.squeeze(sigma))
     norm = tf.random_normal(shape, mean=0.0, stddev=1.0, dtype=dtype)
     return tf.add(mu,tf.squeeze(tf.matmul(chol,norm),axis=-1))
@@ -66,7 +74,6 @@ def devec(x,N,M):
     """
     K = x.get_shape().as_list()[-2]
     return tf.transpose(tf.reshape(x,[-1,K,M,N]),perm=[0,1,3,2])
-
 
 def data_type():
     """Return the type of the activations, weights, and placeholder variables."""
@@ -128,10 +135,17 @@ class SVAE(object):
         recog_out = self.recognitionnet._build_network(input_)# shape: [batch,2N]
         # Outout of NN encode mu and the diag of sigma
         recog_mu = tf.reshape(recog_out[:,:self.N],[-1,1,self.N,1])# shape: [batch,1,N,1]
+        # Sigma diagonal
+        # we enforce it to be psd
         recog_sigma = tf.expand_dims(tf.matrix_diag(tf.abs(recog_out[:,self.N:])),axis=1)# shape: [batch,1,N,N]
-        node_potential = self.gaussian.standard_to_natural(tf.concat([recog_mu,recog_sigma],axis=-1))# shape: [batch,1,N,1+N]
-        node_potential = tf.squeeze(vec(node_potential),axis=1)# shape: [batch,N*(1+N)]
-        return node_potential
+        """
+        # General psd sigma
+        recog_A = devec(tf.expand_dims(recog_out[:,self.N+1:],axis=1),self.N,self.N)# shape: [batch,1,N,N]
+        # we enforce it to be psd
+        eps = tf.reshape(tf.abs(recog_out[:,self.N]),[-1,1,1,1])# shape: [batch,1,1,1]
+        recog_sigma = 0.5 * (recog_A + tf.transpose(recog_A,perm=[0,1,3,2])) + tf.multiply(tf.eye(self.N,batch_shape=[1,1]),eps)# shape: [batch,1,N,N]
+        """
+        return tf.squeeze(vec(tf.concat([recog_mu,recog_sigma],axis=-1)),axis=1)# shape: [batch,N(N+1)]
 
     def _build_generator_net(self,input_):
         # Build generator network
