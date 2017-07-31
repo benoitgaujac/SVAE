@@ -27,10 +27,10 @@ NUM_CHANNELS = 1
 PIXEL_DEPTH = 255
 BATCH_SIZE = 512
 K = 10
-N = 15
+N = 20
 learning_rate = 0.001
 niter = 20
-num_epochs = 10
+num_epochs = 50
 
 
 from optparse import OptionParser
@@ -140,19 +140,19 @@ def main(nets_archi,data,mode_):
                                 learning_rate=learning_rate)
 
     ###### Initialize parameters ######
-    cat_mean,gauss_mean = svae_._initit_params(recognition_net,generator_net)
+    cat_mean,gauss_mean = svae_._init_params(recognition_net,generator_net)
+    labels_stats_init = svae_.init_label_stats()
     # We need to tile the natural parameters for each inputs in batch (inputs are iid)
     tile_shape = [BATCH_SIZE,1,1,1]
     gauss_mean_tiled = tf.tile(tf.expand_dims(gauss_mean,0),tile_shape)# shape: [batch,n_mixtures,dim,1+dim]
     cat_mean_tiled = tf.tile(tf.expand_dims(cat_mean,0),tile_shape[:-1])# shape: [batch,n_mixtures,1]
+    labels_stats_init_tiled = tf.tile(tf.expand_dims(labels_stats_init,0),tile_shape[:-1])# shape: [batch,K,1]
     # We convert the mean parameters to natural parameters
     gaussian_global = svae_.gaussian.standard_to_natural(gauss_mean_tiled)
     label_global = svae_.labels.standard_to_natural(cat_mean_tiled)
-    # Initialize the labels expected stats for the block ascent algorithm
-    labels_stats_init = tf.tile(tf.expand_dims(tf.random_normal([K,1], mean=0.0, stddev=1.0, dtype=data_type()),0),tile_shape[:-1])# shape: [batch,K,1]
 
     ###### Build loss and optimizer ######
-    svae_._create_loss_optimizer(gaussian_global,label_global,labels_stats_init,y)
+    svae_._create_loss_optimizer(gaussian_global,label_global,labels_stats_init_tiled,y)
 
 
     """
@@ -200,7 +200,6 @@ def main(nets_archi,data,mode_):
                             staircase=True)
             """
             # initialize performance indicators
-            l_history = [-100000.0,]
             best_l = -10000000000.0
             #training loop
             print("\nStart training ...")
@@ -211,20 +210,10 @@ def main(nets_archi,data,mode_):
                 print(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
                 batches = get_batches(data, BATCH_SIZE)
                 for batch in batches:
-                    """
-                    gmean,gglobal,gstats,log,lglobal,lstats = sess.run([gauss_mean_tiled,gaussian_global,gaussian_expectedstats,logZ,label_global,labels_stats_init], feed_dict={y: batch})
-                    gglobal_flat = tf.reshape(tf.transpose(gglobal,perm=[0,1,3,2]),[-1,K,N*(N+1)]).eval()
-                    gglobal_reshape = tf.transpose(tf.reshape(gglobal_flat,[-1,1,N+1,N]),perm=[0,1,3,2]).eval()
-                    global_potentials = tf.squeeze(tf.matmul(tf.transpose(lstats,perm=[0,2,1]),gglobal_flat),axis=1).eval()
-                    gstats_flat = tf.reshape(tf.transpose(tf.expand_dims(gstats[0],axis=1),perm=[0,1,3,2]), [-1,N*(N+1)]).eval()# shape: [batch,N*(N+1)]
-                    dot_product = tf.reduce_sum(tf.multiply(gstats_flat,global_potentials),axis=-1,keep_dims=True).eval()# shape: [batch,1]
-                    log_test = 0.5*(np.dot(np.dot(np.transpose(gmean[0,0,:,0]),np.linalg.inv(gmean[0,0,:,1:])),gmean[0,0,:,0])+np.log(np.linalg.det(gmean[0,0,:,1:]))+N*np.log([2*3.14159265359]))
-                    pdb.set_trace()
-                    """
                     # Run the optimizer to update weights and get loss.
-                    _,l= sess.run([svae_.optimizer,svae_.SVAE_obj], feed_dict={y: batch})
-                    # Update average loss and accuracy
-                    train_l += l / len(batches)
+                    _,l = sess.run([svae_.optimizer,svae_.SVAE_obj], feed_dict={y: batch})
+                    # Update average loss
+                    train_l += l/len(batches)
                 if train_l>best_l:
                     best_l = train_l
                 #Test for ploting images
@@ -279,8 +268,8 @@ def main(nets_archi,data,mode_):
 
 if __name__ == '__main__':
     ###### Load and get data ######
-    data = get_data()
-    data = data[:10000]
+    data = shuffle(get_data())
+    data = data[:5000]
     # Reshape data
     data = np.reshape(data,[-1,IMAGE_SIZE*IMAGE_SIZE])
     # Convert to binary
