@@ -25,12 +25,14 @@ WORK_DIRECTORY = '../../data'
 IMAGE_SIZE = 28
 NUM_CHANNELS = 1
 PIXEL_DEPTH = 255
-BATCH_SIZE = 512
+BATCH_SIZE = 1024
 K = 10
-N = 20
-learning_rate = 0.01
-niter = 10
-num_epochs = 30
+N = 10
+learning_rate_init = 0.001
+niter = 50
+num_epochs = 50
+nexamples = 10
+nsamples = 2
 
 
 from optparse import OptionParser
@@ -42,8 +44,8 @@ parser.add_option('-s', '--mode', action='store', dest='mode',
 
 ######################################## Models architectures ########################################
 #recognition_net = {"ninput":IMAGE_SIZE*IMAGE_SIZE,"nhidden_1":500,"nhidden_2":500,"noutput":N*(N+1)+1}
-recognition_net = {"ninput":IMAGE_SIZE*IMAGE_SIZE,"nhidden_1":100,"nhidden_2":100,"noutput":2*N}
-generator_net = {"ninput":N,"nhidden_1":100,"nhidden_2":100,"noutput":IMAGE_SIZE*IMAGE_SIZE}
+recognition_net = {"ninput":IMAGE_SIZE*IMAGE_SIZE,"nhidden_1":200,"nhidden_2":200,"noutput":2*N}
+generator_net = {"ninput":N,"nhidden_1":200,"nhidden_2":200,"noutput":IMAGE_SIZE*IMAGE_SIZE}
 nets_archi = {"recog":recognition_net,"gener":generator_net}
 
 ######################################## Data processing ########################################
@@ -115,14 +117,47 @@ def get_batches(images, batch_size=BATCH_SIZE):
 def binarize(images, threshold=0.1):
     return (threshold < images).astype("float32")
 
+def create_DST(name):
+    DIR = "./trained_models"
+    if not tf.gfile.Exists(DIR):
+        os.makedirs(DIR)
+    PATH = os.path.join(DIR,name)
+    return PATH
+
+def save_reconstruct(original, bernouilli_mean, DST):
+    img_to_plot = np.reshape(original,[-1,IMAGE_SIZE,IMAGE_SIZE])*255.0# shape: [nexamples, 28, 28]
+    img_to_plot = img_to_plot.astype("int32")
+    mean = np.reshape(bernouilli_mean,[-1,IMAGE_SIZE,IMAGE_SIZE])*255.0# shape: [nexamples, 28, 28]
+    mean =  mean.astype("int32")
+    bernoulli = tf.contrib.distributions.Bernoulli(probs=tf.tile(tf.expand_dims(bernouilli_mean,axis=1),[1,nsamples,1]), dtype=tf.float32)# shape: [nexamples,nsamples,28*28]
+    bernoulli_samples = tf.reshape(bernoulli.sample(),[-1,nsamples,IMAGE_SIZE,IMAGE_SIZE])*255.0# shape: [nexamples,nsamples,28,28]
+    bernoulli_samples = bernoulli_samples.eval().astype("int32")
+    for i in range(nexamples):
+        fig = plt.figure()
+        for j in range(2+nsamples):
+            plt.subplot(1,2+nsamples,j+1)
+            if j==0:
+                plt.title("Original", fontsize=10)
+                plt.imshow(img_to_plot[i], cmap="gray", interpolation=None)
+            elif j==1:
+                plt.title("Bernouilli mean", fontsize=10)
+                plt.imshow(mean[i], cmap="gray", interpolation=None)
+            else:
+                plt.title("Sample " + str(j-1), fontsize=10)
+                plt.imshow(bernoulli_samples[i,j-2], cmap="gray", interpolation=None)
+            plt.axis("on")
+        if not tf.gfile.Exists(DST):
+            os.makedirs(DST)
+        file_name = os.path.join(DST, "Example" + str(i) + ".png")
+        fig.savefig(file_name)
+        plt.close()
+
+
 ######################################## Main ########################################
-def main(nets_archi,data,mode_):
+def main(nets_archi,data,mode_,name="test"):
     data_size = data.shape[0]
-    """
-    # TODO
     # Create weights DST dir
-    DST = create_DST(nn_model)
-    """
+    DST = create_DST(name)
 
     ###### Reset tf graph ######
     tf.reset_default_graph()
@@ -132,12 +167,20 @@ def main(nets_archi,data,mode_):
     ###### Create tf placeholder for obs variables ######
     y = tf.placeholder(dtype=data_type(), shape=(None, IMAGE_SIZE*IMAGE_SIZE))
 
+    ###### Create varaible for batch ######
+    batch = tf.Variable(0, dtype=data_type())
+    ###### CLearning rate decay ######
+    learning_rate = tf.train.exponential_decay(
+                    learning_rate_init,     # Base learning rate.
+                    batch * BATCH_SIZE,     # Current index into the dataset.
+                    20*data_size,              # Decay step.
+                    0.99,                   # Decay rate.
+                    staircase=True)
+
     ###### Create instance SVAE ######
     recognition_net = nets_archi["recog"]
     generator_net = nets_archi["gener"]
-    svae_ = svae.SVAE(K=K, N=N, P=IMAGE_SIZE*IMAGE_SIZE,
-                                max_iter=niter,
-                                learning_rate=learning_rate)
+    svae_ = svae.SVAE(K=K, N=N, P=IMAGE_SIZE*IMAGE_SIZE,max_iter=niter)
 
     ###### Initialize parameters ######
     cat_mean,gauss_mean = svae_._init_params(recognition_net,generator_net)
@@ -152,21 +195,12 @@ def main(nets_archi,data,mode_):
     label_global = svae_.labels.standard_to_natural(cat_mean_tiled)
 
     ###### Build loss and optimizer ######
-    svae_._create_loss_optimizer(gaussian_global,label_global,labels_stats_init_tiled,y)
+    svae_._create_loss_optimizer(gaussian_global,label_global,
+                                        labels_stats_init_tiled,
+                                        y,
+                                        learning_rate,
+                                        batch)
 
-
-    """
-    TODO
-    ###### Create varaible for batch ######
-    batch = tf.Variable(0, dtype=data_type())
-    ###### CLearning rate decay ######
-    learning_rate = tf.train.exponential_decay(
-                    model_archi["init_learning_rate"],  # Base learning rate.
-                    batch * BATCH_SIZE,                 # Current index into the dataset.
-                    5*train_size,                       # Decay step.
-                    0.90,                               # Decay rate.
-                    staircase=True)
-    """
     ###### Initializer ######
     init = tf.global_variables_initializer()
     ###### Saver ######
@@ -174,31 +208,15 @@ def main(nets_archi,data,mode_):
     ###### Create a local session to run the training ######
     with tf.Session() as sess:
         # Training
-        if mode_!="test":
-            """
+        if mode_=="training":
             # Opening csv file
-            csv_path = "../../trained_models/part2/Perf/Training_"
-            csvfileTrain = open(csv_path + str(nn_model) + ".csv", 'w')
+            csv_path = "./Perf"
+            if not tf.gfile.Exists(csv_path):
+                os.makedirs(csv_path)
+            csvfileTrain = open(os.path.join(csv_path,name) + ".csv", 'w')
             Trainwriter = csv.writer(csvfileTrain, delimiter=';',)
-            Trainwriter.writerow(['Num Epoch', 'Time', 'Training loss'])
-            """
-            #if not tf.gfile.Exists(DST+".ckpt.meta") or not from_pretrained_weights:
+            Trainwriter.writerow(['Num Epoch', 'objective'])
             sess.run(tf.global_variables_initializer())
-            #sess.run(tf.global_variables_initializer(), feed_dict={phase_train: True})
-            """
-            TODO: reload trained weights
-            else:
-            # Load pre trained model if exist
-            saver.restore(sess, DST+".ckpt")
-            # Reinitialize learning rate
-            tf.variables_initializer([batch,]).run()
-            learning_rate = tf.train.exponential_decay(
-                            model_archi["init_learning_rate"],  # Base learning rate.
-                            batch * BATCH_SIZE,                 # Current index into the dataset.
-                            5*train_size,                       # Decay step.
-                            0.90,                               # Decay rate.
-                            staircase=True)
-            """
             # initialize performance indicators
             best_l = -10000000000.0
             #training loop
@@ -211,71 +229,51 @@ def main(nets_archi,data,mode_):
                 batches = get_batches(data, BATCH_SIZE)
                 for batch in batches:
                     # Run the optimizer to update weights and get loss.
-                    _,l = sess.run([svae_.optimizer,svae_.SVAE_obj], feed_dict={y: batch})
+                    _,l,lr = sess.run([svae_.optimizer,svae_.SVAE_obj,learning_rate], feed_dict={y: batch})
                     # Update average loss
                     train_l += l/len(batches)
                 if train_l>best_l:
                     best_l = train_l
-                #Test for ploting images
-                piy= sess.run(svae_.y_reconstr_mean, feed_dict={y: data[:BATCH_SIZE]})
-                init = np.reshape(data[:BATCH_SIZE],[-1,IMAGE_SIZE,IMAGE_SIZE])*255.0 #shape: [batch, 28, 28]
-                init = init.astype("int32")
-                gene = np.reshape(piy,[-1,IMAGE_SIZE,IMAGE_SIZE])*255.0 #shape: [batch, 28, 28]
-                gene =  gene.astype("int32")
-                for i in range(10):
-                    fig = plt.figure()
-                    # original image
-                    plt.subplot(1,2,1)
-                    plt.imshow(init[i], cmap="gray", interpolation=None)
-                    plt.axis("on")
-                    # generated image
-                    plt.subplot(1,2,2)
-                    plt.imshow(gene[i], cmap="gray", interpolation=None)
-                    plt.axis("on")
-                    fig.savefig("im" + str(i) + ".png")
-                    plt.close()
-
                 # Print info for previous epoch
-                print("Epoch {} done, took {:.2f}s, learning rate: {:.2f}e-3".format(epoch,time.time()-start_time,learning_rate*1000))
-                print("Epoch loss: {:.4f}, Best train loss: {:.4f}".format(train_l,best_l))
-                """
+                #print("Epoch {} done, took {:.2f}s, learning rate: {:.2f}e-3".format(epoch,time.time()-start_time,lr*1000))
+                #print("Epoch loss: {:.4f}, Best train loss: {:.4f}".format(train_l,best_l))
+                print("Epoch {} done, took {:.2f}s, learning rate: {:10.2e}".format(epoch,time.time()-start_time,lr))
+                print("Epoch loss: {:10.2e}, Best train loss: {:10.2e}".format(train_l,best_l))
                 # Writing csv file with results and saving models
-                Trainwriter.writerow([epoch + 1, time.time() - start_time, train_loss])
-                """
-        """
-        # Testing
-        csv_path = "../../trained_models/part2/Perf/test_"
-        csvfileTest = open(csv_path + str(nn_model) + ".csv", 'w')
-        Testwriter = csv.writer(csvfileTest, delimiter=';',)
-        Testwriter.writerow(['Test loss'])
-        if not tf.gfile.Exists(DST+".ckpt.meta"):
-            raise Exception("no weights given")
-        saver.restore(sess, DST+".ckpt")
-        # Compute and print results once training is done
-        test_loss, test_acc = 0.0, 0.0
-        test_Batches = get_batches(test_data, BATCH_SIZE_EVAL)
-        for test_batch in test_Batches:
-            tst_loss, tst_pred = sess.run([loss, prediction], feed_dict={
-                                                    data_node: test_batch,
-                                                    phase_train: False})
-            test_loss += tst_loss / len(test_Batches)
-            test_acc += accuracy_logistic(tst_pred,test_batch[:,1:]) / len(test_Batches)
-        print("\nTesting after {} epochs.".format(num_epochs))
-        print("Test loss: {:.4f}, Test acc: {:.2f}%".format(test_loss,test_acc*100))
-        logging.info("\nTest loss: {:.4f}, Test acc: {:.2f}%".format(test_loss,test_acc*100))
-        Testwriter.writerow([test_loss])
-        """
+                Trainwriter.writerow([epoch + 1, train_l])
+                saver.save(sess,DST)
+                img = data[np.random.randint(0, high=data_size, size=BATCH_SIZE)]
+                bernouilli_mean= sess.run(svae_.y_reconstr_mean, feed_dict={y: img})
+                save_reconstruct(img[:nexamples], bernouilli_mean[:nexamples], "./reconstruct")
+
+        if mode_=="reconstruct":
+            #Test for ploting images
+            if not tf.gfile.Exists(DST+".ckpt.meta"):
+                raise Exception("no weights given")
+            saver.restore(sess, DST+".ckpt")
+            img = data[np.random.randint(0, high=data_size, size=BATCH_SIZE)]
+            bernouilli_mean= sess.run(svae_.y_reconstr_mean, feed_dict={y: img})
+            save_reconstruct(img[:nexamples], bernouilli_mean[:nexamples], "./reconstruct")
+
+        if mode_=="generate":
+            #Test for ploting images
+            if not tf.gfile.Exists(DST+".ckpt.meta"):
+                raise Exception("no weights given")
+            saver.restore(sess, DST+".ckpt")
+            bernouilli_mean= sess.run(svae_.y_reconstr_mean, feed_dict={y: img})
+            save_reconstruct(img, bernouilli_mean, "./reconstruct")
+
 
 if __name__ == '__main__':
     ###### Load and get data ######
     data = shuffle(get_data())
-    data = data[:2000]
+    data = data[:1024]
     # Reshape data
     data = np.reshape(data,[-1,IMAGE_SIZE*IMAGE_SIZE])
     # Convert to binary
     print("Converting data to binary")
     data = binarize(data)
-    main(nets_archi,data,"traning")
+    main(nets_archi,data,"training")
 
     """
     options, arguments = parser.parse_args(sys.argv)

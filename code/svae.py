@@ -87,7 +87,7 @@ class SVAE(object):
     See "Composing graphical models with neural networks for structured representations and fast inference"
     by Johnson for more details.
     """
-    def __init__(self, K=10, N=20, P=784, max_iter=20, learning_rate=0.001):
+    def __init__(self, K=10, N=20, P=784, max_iter=20):
         """
         run inference and compute objective and optimizers for the SVAE algorithm
         network_architecture: architectures of the recognition and generator networks
@@ -100,7 +100,6 @@ class SVAE(object):
         self.N=N
         self.P=P
         self.max_iter = max_iter
-        self.learning_rate = learning_rate
         # Define the distributions of the model
         self._set_distributions()
 
@@ -234,7 +233,7 @@ class SVAE(object):
         kl = tf.squeeze(tf.matmul(gauss_potentials,tf.transpose(gaussian_stats_flat,perm=[0,2,1])),axis=-1)# shape: [batch,1]
         return natparam, stats, kl
 
-    def _create_loss_optimizer(self,gaussian_global,label_global,label_stats_init,y):
+    def _create_loss_optimizer(self,gaussian_global,label_global,label_stats_init,y,learning_rate,batch):
         """
         Compute the SVAE objective using reparametrization trick for likelyhood term
         shape:
@@ -259,4 +258,4 @@ class SVAE(object):
         # Compute SVAE objective
         self.SVAE_obj = tf.reduce_sum(loglikelihood - local_KL)# sum over batch
         # Optimizer
-        self.optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.SVAE_obj)
+        self.optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(self.SVAE_obj,global_step=batch)
