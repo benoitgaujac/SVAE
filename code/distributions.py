@@ -61,7 +61,8 @@ class gaussian(distributions):
         """
         [K,N] = nat_params.get_shape().as_list()[1:3]
         sigma = -0.5*tf.matrix_inverse(nat_params[:,:,:,1:]) # shape: [batch,n_mixtures,dim,dim]
-        mu = tf.matrix_solve(-2*nat_params[:,:,:,1:],tf.expand_dims(nat_params[:,:,:,0],axis=-1))# shape: [batch,n_mixtures,dim,1]
+        mu = tf.matmul(sigma,tf.expand_dims(nat_params[:,:,:,0],axis=-1))# shape: [batch,n_mixtures,dim,1]
+        #mu = tf.matrix_solve(-2*nat_params[:,:,:,1:],tf.expand_dims(nat_params[:,:,:,0],axis=-1))# shape: [batch,n_mixtures,dim,1]
         return tf.concat([mu,sigma],axis=-1) # shape: [batch,n_mixtures,dim,1+dim]
 
     def expectedstats(self, nat_params):
@@ -85,8 +86,10 @@ class gaussian(distributions):
         #logdet
         [K,N] = nat_params.get_shape().as_list()[1:3]
         idty = 2.0*pi*tf.eye(N,batch_shape=[K])
-        cste_term = tf.log(N*tf.reduce_prod(tf.matrix_diag_part(idty),axis=-1))
+        cste_term = tf.log(tf.reduce_prod(tf.matrix_diag_part(idty),axis=-1))# shape: [n_mixtures,]
         logdet = tf.expand_dims(-tf.log(tf.matrix_determinant(-2*nat_params[:,:,:,1:]))+ cste_term,axis=-1)# shape: [batch,n_mixtures,1]
+        #logdet = tf.expand_dims(-tf.log(tf.matrix_determinant(-2*nat_params[:,:,:,1:])),axis=-1)# shape: [batch,n_mixtures,1]
+        #logdet = tf.expand_dims(-tf.log(tf.reduce_prod(tf.matrix_diag_part(-2*nat_params[:,:,:,1:]),axis=-1,keep_dims=False))+ cste_term,axis=-1)# shape: [batch,n_mixtures,1]
         # Quadratic term
         mu = tf.matrix_solve(-2*nat_params[:,:,:,1:],tf.expand_dims(nat_params[:,:,:,0],axis=-1))# shape: [batch,n_mixtures,dim,1]
         musigmu = tf.squeeze(tf.matmul(tf.transpose(mu, perm=[0,1,3,2]),tf.expand_dims(nat_params[:,:,:,0],axis=-1)),axis=-1) # shape: [batch,n_mixtures,1]
@@ -95,19 +98,27 @@ class gaussian(distributions):
 class discrete(distributions):
 
     def standard_to_natural(self, standard_params):
+        batchsize = standard_params.get_shape().as_list()[0]
+        ratio = tf.divide(standard_params[:,:-1],tf.expand_dims(standard_params[:,-1],axis=-1))# shape: [batch,n_mixtures-1,1]
+        """
         mean = standard_params
         label_natparams = tf.log(mean)
         return label_natparams
+        """
+        return tf.concat([tf.log(ratio),tf.zeros([batchsize,1,1])],axis=1)# shape: [batch,n_mixtures,1]
 
     def natural_to_standard(self, nat_params):
-        #logmean = nat_params
+        """
         label_standard = tf.exp(nat_params)
         return label_standard
+        """
+        return tf.nn.softmax(nat_params,dim=1)
 
     def expectedstats(self, nat_params):
         #logmean = nat_params
-        label_expectedstats = tf.exp(nat_params)
+        mean_params = self.natural_to_standard(nat_params)
+        label_expectedstats = tf.exp(mean_params)
         return label_expectedstats
 
     def logZ(self,nat_params):
-        return 0.
+        return tf.reduce_logsumexp(nat_params,axis=1,keep_dims=False)

@@ -12,9 +12,12 @@ import tensorflow as tf
 from PIL import Image
 import matplotlib.pyplot as plt
 
+from math import pi
+
 import distributions
 import nn
 import svae
+
 
 ## Initialize seeds
 np.random.seed(0)
@@ -25,14 +28,14 @@ WORK_DIRECTORY = '../../data'
 IMAGE_SIZE = 28
 NUM_CHANNELS = 1
 PIXEL_DEPTH = 255
-BATCH_SIZE = 1024
+BATCH_SIZE = 2
 K = 10
-N = 10
+N = 20
 learning_rate_init = 0.001
-niter = 50
-num_epochs = 50
-nexamples = 10
-nsamples = 2
+niter = 20
+num_epochs = 30
+nexamples = 2
+nsamples = 1
 
 
 from optparse import OptionParser
@@ -44,8 +47,8 @@ parser.add_option('-s', '--mode', action='store', dest='mode',
 
 ######################################## Models architectures ########################################
 #recognition_net = {"ninput":IMAGE_SIZE*IMAGE_SIZE,"nhidden_1":500,"nhidden_2":500,"noutput":N*(N+1)+1}
-recognition_net = {"ninput":IMAGE_SIZE*IMAGE_SIZE,"nhidden_1":200,"nhidden_2":200,"noutput":2*N}
-generator_net = {"ninput":N,"nhidden_1":200,"nhidden_2":200,"noutput":IMAGE_SIZE*IMAGE_SIZE}
+recognition_net = {"ninput":IMAGE_SIZE*IMAGE_SIZE,"nhidden_1":128,"nhidden_2":128,"noutput":2*N}
+generator_net = {"ninput":N,"nhidden_1":128,"nhidden_2":128,"noutput":IMAGE_SIZE*IMAGE_SIZE}
 nets_archi = {"recog":recognition_net,"gener":generator_net}
 
 ######################################## Data processing ########################################
@@ -105,12 +108,16 @@ def get_data():
 
 def get_batches(images, batch_size=BATCH_SIZE):
     batches = []
-    X = shuffle(images)
-    for i in range(int(X.shape[0]/batch_size)+1):
-        if i<int(X.shape[0]/batch_size):
+    #X = shuffle(images)
+    X = images
+    for i in range(int(X.shape[0]/batch_size)):
+        X_batch = X[i * batch_size: (i + 1) * batch_size]
+        """
+        if i<=int(X.shape[0]/batch_size):
             X_batch = X[i * batch_size: (i + 1) * batch_size]
         else:
             X_batch = X[-batch_size:]
+        """
         batches.append(X_batch)
     return batches
 
@@ -132,6 +139,7 @@ def save_reconstruct(original, bernouilli_mean, DST):
     bernoulli = tf.contrib.distributions.Bernoulli(probs=tf.tile(tf.expand_dims(bernouilli_mean,axis=1),[1,nsamples,1]), dtype=tf.float32)# shape: [nexamples,nsamples,28*28]
     bernoulli_samples = tf.reshape(bernoulli.sample(),[-1,nsamples,IMAGE_SIZE,IMAGE_SIZE])*255.0# shape: [nexamples,nsamples,28,28]
     bernoulli_samples = bernoulli_samples.eval().astype("int32")
+    """
     for i in range(nexamples):
         fig = plt.figure()
         for j in range(2+nsamples):
@@ -151,6 +159,26 @@ def save_reconstruct(original, bernouilli_mean, DST):
         file_name = os.path.join(DST, "Example" + str(i) + ".png")
         fig.savefig(file_name)
         plt.close()
+    """
+    fig = plt.figure()
+    for i in range(nexamples):
+        for j in range(2+nsamples):
+            plt.subplot(2+nsamples,nexamples,j*nexamples+i+1)
+            plt.axis("off")
+            if j==0:
+                #plt.title("Original", fontsize=10)
+                plt.imshow(img_to_plot[i], cmap="gray", interpolation=None)
+            elif j==1:
+                #plt.title("Bernouilli mean", fontsize=10)
+                plt.imshow(mean[i], cmap="gray", interpolation=None)
+            else:
+                #plt.title("Sample " + str(j-1), fontsize=10)
+                plt.imshow(bernoulli_samples[i,j-2], cmap="gray", interpolation=None)
+    if not tf.gfile.Exists(DST):
+        os.makedirs(DST)
+    file_name = os.path.join(DST, "Example.png")
+    fig.savefig(file_name)
+    plt.close()
 
 
 ######################################## Main ########################################
@@ -228,23 +256,20 @@ def main(nets_archi,data,mode_,name="test"):
                 print(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
                 batches = get_batches(data, BATCH_SIZE)
                 for batch in batches:
-                    # Run the optimizer to update weights and get loss.
-                    _,l,lr = sess.run([svae_.optimizer,svae_.SVAE_obj,learning_rate], feed_dict={y: batch})
+                    _,l,bernouilli_mean,lr = sess.run([svae_.optimizer,svae_.SVAE_obj,svae_.y_reconstr_mean,learning_rate], feed_dict={y: batch})
                     # Update average loss
                     train_l += l/len(batches)
                 if train_l>best_l:
                     best_l = train_l
                 # Print info for previous epoch
-                #print("Epoch {} done, took {:.2f}s, learning rate: {:.2f}e-3".format(epoch,time.time()-start_time,lr*1000))
-                #print("Epoch loss: {:.4f}, Best train loss: {:.4f}".format(train_l,best_l))
                 print("Epoch {} done, took {:.2f}s, learning rate: {:10.2e}".format(epoch,time.time()-start_time,lr))
                 print("Epoch loss: {:10.2e}, Best train loss: {:10.2e}".format(train_l,best_l))
                 # Writing csv file with results and saving models
                 Trainwriter.writerow([epoch + 1, train_l])
                 saver.save(sess,DST)
-                img = data[np.random.randint(0, high=data_size, size=BATCH_SIZE)]
-                bernouilli_mean= sess.run(svae_.y_reconstr_mean, feed_dict={y: img})
-                save_reconstruct(img[:nexamples], bernouilli_mean[:nexamples], "./reconstruct")
+                #img = data[np.random.randint(0, high=data_size, size=BATCH_SIZE)]
+                #bernouilli_mean= sess.run(svae_.y_reconstr_mean, feed_dict={y: img})
+                save_reconstruct(batch[:nexamples], bernouilli_mean[:nexamples], "./reconstruct")
 
         if mode_=="reconstruct":
             #Test for ploting images
@@ -254,20 +279,24 @@ def main(nets_archi,data,mode_,name="test"):
             img = data[np.random.randint(0, high=data_size, size=BATCH_SIZE)]
             bernouilli_mean= sess.run(svae_.y_reconstr_mean, feed_dict={y: img})
             save_reconstruct(img[:nexamples], bernouilli_mean[:nexamples], "./reconstruct")
-
+        """
+        TODO
         if mode_=="generate":
             #Test for ploting images
             if not tf.gfile.Exists(DST+".ckpt.meta"):
                 raise Exception("no weights given")
             saver.restore(sess, DST+".ckpt")
-            bernouilli_mean= sess.run(svae_.y_reconstr_mean, feed_dict={y: img})
-            save_reconstruct(img, bernouilli_mean, "./reconstruct")
+            gaussian_mean= sess.run(gauss_mean, feed_dict={})
+            bernouilli_mean= sess.run(svae_.y_generate_mean, feed_dict={gaussian_mean: gaussian_mean})
+            save_gene(img, bernouilli_mean, "./reconstruct")
+        """
 
 
 if __name__ == '__main__':
     ###### Load and get data ######
-    data = shuffle(get_data())
-    data = data[:1024]
+    data = get_data()
+    data = data[:1*BATCH_SIZE]
+    #data = data[:10000]
     # Reshape data
     data = np.reshape(data,[-1,IMAGE_SIZE*IMAGE_SIZE])
     # Convert to binary
@@ -276,6 +305,7 @@ if __name__ == '__main__':
     main(nets_archi,data,"training")
 
     """
+    TODO
     options, arguments = parser.parse_args(sys.argv)
     if options.model not in models.keys():
         raise Exception("Invalide model name")

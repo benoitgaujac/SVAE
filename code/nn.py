@@ -26,18 +26,19 @@ class nnet(metaclass=abc.ABCMeta):
         self.archi = nnarchi
         self.name = name
         self.dtype = dtype
-
-    @abc.abstractmethod
-    def _build_network(self):
-        """
-        Main function, build the nnet
-        """
-        pass
+        self.all_weights = self._initialize_weights()
 
     @abc.abstractmethod
     def _initialize_weights(self):
         """
         Initialize the weights of the nnet
+        """
+        pass
+
+    @abc.abstractmethod
+    def _build_network(self):
+        """
+        Main function, build the nnet
         """
         pass
 
@@ -51,11 +52,7 @@ class nnet(metaclass=abc.ABCMeta):
 class dense_net(nnet):
     def __init__(self, nnarchi, name, dtype=tf.float32):
         super().__init__(nnarchi, name, dtype=tf.float32)
-
-    def _build_network(self, nninput):
-        weights = self._initialize_weights()
-        nn_output = self._build_graph(nninput,weights["weights_"+self.name],weights["biases_"+self.name])
-        return nn_output
+        self.all_weights = self._initialize_weights()
 
     def _initialize_weights(self):
         all_weights = dict()
@@ -68,6 +65,11 @@ class dense_net(nnet):
             'b2': tf.Variable(tf.zeros([self.archi["nhidden_2"]], dtype=self.dtype)),
             'out': tf.Variable(tf.zeros([self.archi["noutput"]], dtype=self.dtype))}
         return all_weights
+
+    def _build_network(self, nninput):
+        #weights = self._initialize_weights()
+        nn_output = self._build_graph(nninput,self.all_weights["weights_"+self.name],self.all_weights["biases_"+self.name])
+        return nn_output
 
     def _build_graph(self, nninput, weights, biases):
         layer_1 = tf.nn.elu(tf.add(tf.matmul(nninput,
