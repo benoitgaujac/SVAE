@@ -13,17 +13,19 @@ tf.set_random_seed(0)
 
 ######################################## Utils functions ########################################
 # Initialization of discrete params
-def init_cat(n_mixtures,dtype=tf.float32):
+def init_cat(n_mixtures,params="global",dtype=tf.float32):
     """
     Initialize parameters of discrete distribution following dirichlet
     """
-    discr_mean = tf.Variable(tf.random_normal(shape=[n_mixtures,1], mean=0.0, stddev=1.0, dtype=dtype))# shape: [n_mixtures-1,1]
+    if params=="global":
+        discr_mean = tf.Variable(tf.random_normal(shape=[n_mixtures,1], mean=0.0, stddev=1.0, dtype=dtype))# shape: [n_mixtures-1,1]
+    elif params=="variational":
+        #discr_mean = tf.ones(shape=[n_mixtures,1], dtype=dtype)# shape: [n_mixtures-1,1]
+        discr_mean = tf.random_normal(shape=[n_mixtures,1], mean=0.0, stddev=1.0, dtype=dtype)# shape: [n_mixtures-1,1]
+    else:
+        raise Exception("Wrong type of parameters. No parameters initialized")
     # Softmax to ensure sum to 1
     logits = tf.nn.softmax(discr_mean,dim=0)
-    """
-    logits = tf.nn.sigmoid(discr_mean)# shape: [n_mixtures-1,1]
-    return tf.concat([logits,1.-tf.reduce_sum(logits,axis=0,keep_dims=True)],axis=0)# shape: [n_mixtures,1]
-    """
     return logits
 
 # Initialization of mean and covariance matrix
@@ -31,12 +33,8 @@ def init_gaussian(n_mixtures,dim,dtype=tf.float32):
     """
     Initialize means and covariance matrix for the gaussian mixtures components
     """
-    # mu
     mu = tf.Variable(tf.random_normal([n_mixtures,dim,1], mean=0.0, stddev=1.0, dtype=dtype))# shape: [n_mixtures,dim,1]
     # We have to enforce the covariance to be psd
-    #Sigma
-    # Sigma diagonal
-    #diag = tf.Variable(tf.random_normal([n_mixtures,dim],mean=1.0, stddev=1.0, dtype=dtype))# shape: [n_mixtures,dim]
     log_sigma = tf.Variable(tf.ones(shape=[n_mixtures,dim], dtype=dtype))# shape: [n_mixtures,1]
     sigma = tf.matrix_diag(tf.exp(log_sigma))# shape: [n_mixtures,dim,dim]
     """
@@ -91,7 +89,7 @@ class SVAE(object):
     See "Composing graphical models with neural networks for structured representations and fast inference"
     by Johnson for more details.
     """
-    def __init__(self, K=10, N=20, P=784, max_iter=20):
+    def __init__(self,recog_archi, gener_archi, K=10, N=20, P=784, max_iter=20):
         """
         run inference and compute objective and optimizers for the SVAE algorithm
         network_architecture: architectures of the recognition and generator networks
@@ -106,6 +104,8 @@ class SVAE(object):
         self.max_iter = max_iter
         # Define the distributions of the model
         self._set_distributions()
+        # Initialize weights of the NNs
+        self._init_weights(recog_archi,gener_archi)
 
     def _set_distributions(self):
         """
@@ -115,37 +115,23 @@ class SVAE(object):
         self.labels = distributions.discrete()
         self.gaussian = distributions.gaussian()
 
-    def _init_params(self,recog_archi,gener_archi):
+    def _init_weights(self,recog_archi,gener_archi):
         # Initialize nn parameters
         self.recognitionnet = nn.dense_net(recog_archi, "recog",data_type())
         self.generatornet = nn.dense_net(gener_archi, "gener",data_type())
+
+    def _init_params(self):
         # Initialize parameters of the model \theta = (\pi, {(\mu_k, \Sigma_k)}_{k=1}^K)
-        gauss_mean = init_gaussian(self.K,self.N,dtype=data_type())# shape: [n_mixtures,dim,1+dim]
-        cat_mean = init_cat(self.K,dtype=data_type())# shape: [n_mixtures,1]
-        return cat_mean,gauss_mean
-
-    def init_label_stats(self):
-        """
-        Initialize label expected stats
-        """
-        """
-        stats = tf.ones(shape=[self.K-1,1], dtype=data_type())# shape: [n_mixtures-1,1]
-        # we use sigmoid to ensure the components are between 0 and 1
-        logits = tf.nn.sigmoid(stats)# shape: [n_mixtures-1,1]
-        return tf.concat([logits,1.-tf.reduce_sum(logits,axis=0,keep_dims=True)],axis=0)# shape: [n_mixtures,1]
-        """
-        discr_mean = tf.ones(shape=[self.K,1], dtype=data_type())# shape: [n_mixtures,1]
-        # Softmax to ensure sum to 1
-        logits = tf.nn.softmax(discr_mean,dim=0)# shape: [n_mixtures,1]
-        return logits# shape: [n_mixtures,1]
-
+        gauss_global_mean   = init_gaussian(self.K,self.N,dtype=data_type())# shape: [n_mixtures,dim,1+dim]
+        label_global_mean   = init_cat(self.K,"global",dtype=data_type())# shape: [n_mixtures,1]
+        init_label_stats    = init_cat(self.K,"variational",dtype=data_type())# shape: [n_mixtures,1]
+        return init_label_stats,label_global_mean,gauss_global_mean
 
     def _build_recognition_net(self,input_):
-        # Build recognition network and get potential
+        # Foward pass for recognition network and get potential
         recog_out = self.recognitionnet._build_network(input_)# shape: [batch,2N]
         # Outout of NN encode mu and the diag of sigma
         recog_mu = tf.reshape(recog_out[:,:self.N],[-1,1,self.N,1])# shape: [batch,1,N,1]
-        # Sigma diagonal
         # we enforce it to be nsd
         recog_sigma = tf.expand_dims(tf.matrix_diag(-tf.exp(recog_out[:,self.N:])),axis=1)# shape: [batch,1,N,N]
         """
@@ -158,7 +144,7 @@ class SVAE(object):
         return tf.squeeze(vec(tf.concat([recog_mu,recog_sigma],axis=-1)),axis=1)# shape: [batch,N(N+1)]
 
     def _build_generator_net(self,input_):
-        # Build generator network
+        # Foward pass for generator network
         y_reconstr_mean = self.generatornet._build_network(input_)# shape: [batch,P*P]
         return y_reconstr_mean
 
@@ -175,7 +161,7 @@ class SVAE(object):
         # compute local kl and natparams needed for sampling using partial optimizers
         gaussian_natparam, gaussian_stats, gaussian_kl = \
                 self._gaussian_meanfield(gaussian_global, node_potential, label_stats)
-        label_natparam, label_stats, label_kl = \
+        label_natparam, _, label_kl = \
                 self._label_meanfield(label_global, gaussian_global, gaussian_stats)
 
         kl = gaussian_kl+label_kl
@@ -194,9 +180,9 @@ class SVAE(object):
         label_stats = label_stats_
         # block ascent to find partial optimizers
         for i in range(self.max_iter):
-            gaussian_natparam, gaussian_stats, gaussian_kl = \
+            _, gaussian_stats, _ = \
                 self._gaussian_meanfield(gaussian_global, node_potential, label_stats)
-            label_natparam, label_stats, label_kl = \
+            _, label_stats, _ = \
                 self._label_meanfield(label_global, gaussian_global, gaussian_stats)
         return label_stats
 

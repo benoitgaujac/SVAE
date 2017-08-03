@@ -30,20 +30,21 @@ NUM_CHANNELS = 1
 PIXEL_DEPTH = 255
 BATCH_SIZE = 2
 K = 10
-N = 20
+N = 5
 learning_rate_init = 0.001
-niter = 20
+niter = 15
 num_epochs = 30
 nexamples = 2
 nsamples = 1
 
-
+"""
 from optparse import OptionParser
 parser = OptionParser()
 parser.add_option('-m', '--model', action='store', dest='model',
     help="NN models in {gru1l32u, gru1l64u, gru1l128u, gru3l32u}")
 parser.add_option('-s', '--mode', action='store', dest='mode',
     help="running mode in {train, test, inpainting} ")
+"""
 
 ######################################## Models architectures ########################################
 #recognition_net = {"ninput":IMAGE_SIZE*IMAGE_SIZE,"nhidden_1":500,"nhidden_2":500,"noutput":N*(N+1)+1}
@@ -208,19 +209,23 @@ def main(nets_archi,data,mode_,name="test"):
     ###### Create instance SVAE ######
     recognition_net = nets_archi["recog"]
     generator_net = nets_archi["gener"]
-    svae_ = svae.SVAE(K=K, N=N, P=IMAGE_SIZE*IMAGE_SIZE,max_iter=niter)
+    svae_ = svae.SVAE(recog_archi=recognition_net,  # architecture of the recognition network
+                        gener_archi=generator_net,  # architecture of the generative network
+                        K=K,                        # dim of the discrete latents z
+                        N=N,                        # dim of the gaussian latents x
+                        P=IMAGE_SIZE*IMAGE_SIZE,    # dim of the obs variables y
+                        max_iter=niter)             # number of iterations in the coordinate block ascent
 
     ###### Initialize parameters ######
-    cat_mean,gauss_mean = svae_._init_params(recognition_net,generator_net)
-    labels_stats_init = svae_.init_label_stats()
+    labels_stats_init,label_global_mean,gauss_global_mean = svae_._init_params()
     # We need to tile the natural parameters for each inputs in batch (inputs are iid)
     tile_shape = [BATCH_SIZE,1,1,1]
-    gauss_mean_tiled = tf.tile(tf.expand_dims(gauss_mean,0),tile_shape)# shape: [batch,n_mixtures,dim,1+dim]
-    cat_mean_tiled = tf.tile(tf.expand_dims(cat_mean,0),tile_shape[:-1])# shape: [batch,n_mixtures,1]
+    gauss_global_mean_tiled = tf.tile(tf.expand_dims(gauss_global_mean,0),tile_shape)# shape: [batch,n_mixtures,dim,1+dim]
+    label_global_mean_tiled = tf.tile(tf.expand_dims(label_global_mean,0),tile_shape[:-1])# shape: [batch,n_mixtures,1]
     labels_stats_init_tiled = tf.tile(tf.expand_dims(labels_stats_init,0),tile_shape[:-1])# shape: [batch,K,1]
-    # We convert the mean parameters to natural parameters
-    gaussian_global = svae_.gaussian.standard_to_natural(gauss_mean_tiled)
-    label_global = svae_.labels.standard_to_natural(cat_mean_tiled)
+    # We convert the global mean parameters to global natural parameters
+    gaussian_global = svae_.gaussian.standard_to_natural(gauss_global_mean_tiled)
+    label_global = svae_.labels.standard_to_natural(label_global_mean_tiled)
 
     ###### Build loss and optimizer ######
     svae_._create_loss_optimizer(gaussian_global,label_global,
@@ -267,8 +272,6 @@ def main(nets_archi,data,mode_,name="test"):
                 # Writing csv file with results and saving models
                 Trainwriter.writerow([epoch + 1, train_l])
                 saver.save(sess,DST)
-                #img = data[np.random.randint(0, high=data_size, size=BATCH_SIZE)]
-                #bernouilli_mean= sess.run(svae_.y_reconstr_mean, feed_dict={y: img})
                 save_reconstruct(batch[:nexamples], bernouilli_mean[:nexamples], "./reconstruct")
 
         if mode_=="reconstruct":

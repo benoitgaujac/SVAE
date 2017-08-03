@@ -15,6 +15,16 @@ def xavier_init(fan_in, fan_out, constant=1, dtype=tf.float32):
                                     maxval=high,
                                     dtype=dtype)
 
+# Normal initialization of weights
+def weight_variable(shape,name):
+    initializer = tf.random_normal_initializer(mean=0.0, stddev=0.01, dtype=tf.float32)
+    return tf.get_variable(name, shape, initializer=initializer)
+
+def bias_variable(shape,name):
+    initializer = tf.constant_initializer(0.1)
+    return tf.get_variable(name, shape, initializer=initializer)
+
+
 class nnet(metaclass=abc.ABCMeta):
     """
     Abstract class for neural network
@@ -52,22 +62,20 @@ class nnet(metaclass=abc.ABCMeta):
 class dense_net(nnet):
     def __init__(self, nnarchi, name, dtype=tf.float32):
         super().__init__(nnarchi, name, dtype=tf.float32)
-        self.all_weights = self._initialize_weights()
 
     def _initialize_weights(self):
         all_weights = dict()
         all_weights["weights_" + self.name] = {
-            'h1': tf.Variable(xavier_init(self.archi["ninput"], self.archi["nhidden_1"])),
-            'h2': tf.Variable(xavier_init(self.archi["nhidden_1"], self.archi["nhidden_2"])),
-            'out': tf.Variable(xavier_init(self.archi["nhidden_2"], self.archi["noutput"]))}
+            'h1': weight_variable([self.archi["ninput"], self.archi["nhidden_1"]],self.name + "_weights0"),
+            'h2': weight_variable([self.archi["nhidden_1"], self.archi["nhidden_2"]],self.name + "_weights1"),
+            'out': weight_variable([self.archi["nhidden_2"], self.archi["noutput"]],self.name + "_weights2")}
         all_weights["biases_" + self.name] = {
-            'b1': tf.Variable(tf.zeros([self.archi["nhidden_1"]], dtype=self.dtype)),
-            'b2': tf.Variable(tf.zeros([self.archi["nhidden_2"]], dtype=self.dtype)),
-            'out': tf.Variable(tf.zeros([self.archi["noutput"]], dtype=self.dtype))}
+            'b1': bias_variable([self.archi["nhidden_1"]], self.name + "_biais0"),
+            'b2': bias_variable([self.archi["nhidden_2"]], self.name + "_biais1"),
+            'out': bias_variable([self.archi["noutput"]], self.name + "_biais2")}
         return all_weights
 
     def _build_network(self, nninput):
-        #weights = self._initialize_weights()
         nn_output = self._build_graph(nninput,self.all_weights["weights_"+self.name],self.all_weights["biases_"+self.name])
         return nn_output
 
