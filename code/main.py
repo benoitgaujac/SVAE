@@ -23,13 +23,13 @@ np.random.seed(0)
 tf.set_random_seed(0)
 
 IMAGE_SIZE = 28
-BATCH_SIZE = 2
-K = 10
+BATCH_SIZE = 3
+K = 3
 N = 5
-learning_rate_init = 0.001
-niter = 15
-num_epochs = 30
-nexamples = 2
+learning_rate_init = 0.005
+niter = 100
+num_epochs = 200
+nexamples = 3
 nsamples = 1
 
 """
@@ -129,7 +129,7 @@ def main(nets_archi,data,mode_,name="test"):
     learning_rate = tf.train.exponential_decay(
                     learning_rate_init,     # Base learning rate.
                     batch * BATCH_SIZE,     # Current index into the dataset.
-                    20*data_size,              # Decay step.
+                    50*data_size,              # Decay step.
                     0.99,                   # Decay rate.
                     staircase=True)
 
@@ -196,9 +196,11 @@ def main(nets_archi,data,mode_,name="test"):
                 # Print info for previous epoch
                 print("Epoch {} done, took {:.2f}s, learning rate: {:10.2e}".format(epoch,time.time()-start_time,lr))
                 print("Epoch loss: {:10.2e}, Best train loss: {:10.2e}".format(train_l,best_l))
+                """
                 # Writing csv file with results and saving models
                 Trainwriter.writerow([epoch + 1, train_l])
                 saver.save(sess,DST)
+                """
                 save_reconstruct(batch[:nexamples], bernouilli_mean[:nexamples], "./reconstruct")
 
         if mode_=="reconstruct":
