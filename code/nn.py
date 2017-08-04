@@ -17,7 +17,7 @@ def xavier_init(fan_in, fan_out, constant=1, dtype=tf.float32):
 
 # Normal initialization of weights
 def weight_variable(shape,name):
-    initializer = tf.random_normal_initializer(mean=0.0, stddev=0.01, dtype=tf.float32)
+    initializer = tf.random_normal_initializer(mean=0.0, stddev=0.1, dtype=tf.float32)
     return tf.get_variable(name, shape, initializer=initializer)
 
 def bias_variable(shape,name):
