@@ -23,13 +23,13 @@ np.random.seed(0)
 tf.set_random_seed(0)
 
 IMAGE_SIZE = 28
-BATCH_SIZE = 4
-K = 4
+BATCH_SIZE = 10
+K = 10
 N = 15
 learning_rate_init = 0.002
 niter = 80
 num_epochs = 100
-nexamples = 4
+nexamples = 5
 nsamples = 3
 
 """
