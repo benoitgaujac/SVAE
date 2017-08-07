@@ -89,7 +89,7 @@ class gaussian(distributions):
         cste_term = tf.log(tf.reduce_prod(tf.matrix_diag_part(idty),axis=-1))# shape: [n_mixtures,]
         logdet = tf.expand_dims(-tf.log(tf.matrix_determinant(-2*nat_params[:,:,:,1:]))+ cste_term,axis=-1)# shape: [batch,n_mixtures,1]
         #logdet = tf.expand_dims(-tf.log(tf.matrix_determinant(-2*nat_params[:,:,:,1:])),axis=-1)# shape: [batch,n_mixtures,1]
-        #logdet = tf.expand_dims(-tf.log(tf.reduce_prod(tf.matrix_diag_part(-2*nat_params[:,:,:,1:]),axis=-1,keep_dims=False))+ cste_term,axis=-1)# shape: [batch,n_mixtures,1]
+        #logdet = tf.expand_dims(-tf.log(tf.reduce_prod(tf.matrix_diag_part(-2*nat_params[:,:,:,1:]),axis=2,keep_dims=False))+ cste_term,axis=-1)# shape: [batch,n_mixtures,1]
         # Quadratic term
         mu = tf.matrix_solve(-2*nat_params[:,:,:,1:],tf.expand_dims(nat_params[:,:,:,0],axis=-1))# shape: [batch,n_mixtures,dim,1]
         musigmu = tf.squeeze(tf.matmul(tf.transpose(mu, perm=[0,1,3,2]),tf.expand_dims(nat_params[:,:,:,0],axis=-1)),axis=-1) # shape: [batch,n_mixtures,1]

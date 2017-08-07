@@ -23,14 +23,14 @@ np.random.seed(0)
 tf.set_random_seed(0)
 
 IMAGE_SIZE = 28
-BATCH_SIZE = 10
+BATCH_SIZE = 512
 K = 10
-N = 15
-learning_rate_init = 0.002
-niter = 80
+N = 20
+learning_rate_init = 0.001
+niter = 30
 num_epochs = 100
-nexamples = 5
-nsamples = 3
+nexamples = 4
+nsamples = 2
 
 """
 from optparse import OptionParser
@@ -60,13 +60,16 @@ def create_DST(name):
     return PATH
 
 def save_reconstruct(original, bernouilli_mean, DST):
-    img_to_plot = np.reshape(original,[-1,IMAGE_SIZE,IMAGE_SIZE])*255.0# shape: [nexamples, 28, 28]
-    img_to_plot = img_to_plot.astype("int32")
+    orig = np.reshape(original,[-1,IMAGE_SIZE,IMAGE_SIZE])*255.0# shape: [nexamples, 28, 28]
+    orig = orig.astype("int32")
     mean = np.reshape(bernouilli_mean,[-1,IMAGE_SIZE,IMAGE_SIZE])*255.0# shape: [nexamples, 28, 28]
     mean =  mean.astype("int32")
-    bernoulli = tf.contrib.distributions.Bernoulli(probs=tf.tile(tf.expand_dims(bernouilli_mean,axis=1),[1,nsamples,1]), dtype=tf.float32)# shape: [nexamples,nsamples,28*28]
-    bernoulli_samples = tf.reshape(bernoulli.sample(),[-1,nsamples,IMAGE_SIZE,IMAGE_SIZE])*255.0# shape: [nexamples,nsamples,28,28]
-    bernoulli_samples = bernoulli_samples.eval().astype("int32")
+    bernoulli_samples = []
+    for i in range(nexamples):
+        distribution = tf.contrib.distributions.Bernoulli(probs=tf.tile(tf.expand_dims(bernouilli_mean[i],axis=0),[nsamples,1]), dtype=tf.float32)# shape: [nsamples,28*28]
+        samples = tf.reshape(distribution.sample(),[-1,IMAGE_SIZE,IMAGE_SIZE])*255.0# shape: [nexamples,nsamples,28,28]
+        bernoulli_samples.append(samples.eval().astype("int32"))
+    bernoulli_samples = np.stack(bernoulli_samples,axis=0)
     """
     for i in range(nexamples):
         fig = plt.figure()
@@ -74,7 +77,7 @@ def save_reconstruct(original, bernouilli_mean, DST):
             plt.subplot(1,2+nsamples,j+1)
             if j==0:
                 plt.title("Original", fontsize=10)
-                plt.imshow(img_to_plot[i], cmap="gray", interpolation=None)
+                plt.imshow(orig[i], cmap="gray", interpolation=None)
             elif j==1:
                 plt.title("Bernouilli mean", fontsize=10)
                 plt.imshow(mean[i], cmap="gray", interpolation=None)
@@ -95,7 +98,7 @@ def save_reconstruct(original, bernouilli_mean, DST):
             plt.axis("off")
             if j==0:
                 #plt.title("Original", fontsize=10)
-                plt.imshow(img_to_plot[i], cmap="gray", interpolation=None)
+                plt.imshow(orig[i], cmap="gray", interpolation=None)
             elif j==1:
                 #plt.title("Bernouilli mean", fontsize=10)
                 plt.imshow(mean[i], cmap="gray", interpolation=None)
@@ -108,20 +111,26 @@ def save_reconstruct(original, bernouilli_mean, DST):
     fig.savefig(file_name)
     plt.close()
 
-
 def save_gene(bernouilli_mean, DST):
     mean = np.reshape(bernouilli_mean,[-1,IMAGE_SIZE,IMAGE_SIZE])*255.0# shape: [K, 28, 28]
     mean =  mean.astype("int32")
-    bernoulli = tf.contrib.distributions.Bernoulli(probs=tf.tile(tf.expand_dims(bernouilli_mean,axis=1),[1,nsamples,1]), dtype=tf.float32)# shape: [K,nsamples,28*28]
-    bernoulli_samples = tf.reshape(bernoulli.sample(),[-1,nsamples,IMAGE_SIZE,IMAGE_SIZE])*255.0# shape: [K,nsamples,28,28]
-    bernoulli_samples = bernoulli_samples.eval().astype("int32")
+    bernoulli_samples = []
+    for i in range(K):
+        distribution = tf.contrib.distributions.Bernoulli(probs=tf.tile(tf.expand_dims(bernouilli_mean[i],axis=0),[nsamples,1]), dtype=tf.float32)# shape: [nsamples,28*28]
+        samples = tf.reshape(distribution.sample(),[-1,IMAGE_SIZE,IMAGE_SIZE])*255.0# shape: [K,nsamples,28,28]
+        bernoulli_samples.append(samples.eval().astype("int32"))
+    bernoulli_samples = np.stack(bernoulli_samples,axis=0)
     for i in range(K):
         fig = plt.figure()
-        for j in range(nsamples):
-            plt.subplot(1,nsamples,j+1)
-            plt.title("Sample " + str(j+1), fontsize=10)
-            plt.imshow(bernoulli_samples[i,j], cmap="gray", interpolation=None)
-            plt.axis("on")
+        for j in range(nsamples+1):
+            plt.subplot(1,nsamples+1,j+1)
+            plt.axis("off")
+            if j==0:
+                plt.title("Mean ", fontsize=10)
+                plt.imshow(mean[i], cmap="gray", interpolation=None)
+            else:
+                plt.title("Sample " + str(j+1), fontsize=10)
+                plt.imshow(bernoulli_samples[i,j], cmap="gray", interpolation=None)
         if not tf.gfile.Exists(DST):
             os.makedirs(DST)
         file_name = os.path.join(DST, "mixture" + str(i) + ".png")
@@ -209,20 +218,21 @@ def main(nets_archi,data,mode_,name="test"):
                 print(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
                 batches = data_processing.get_batches(data, BATCH_SIZE)
                 for batch in batches:
-                    _,l,recon_mean,gener_mean,lr = sess.run([svae_.optimizer,svae_.SVAE_obj,svae_.y_reconstr_mean,svae_.y_generate_mean,learning_rate], feed_dict={y: batch})
+                    _,l,gener_mean,lr = sess.run([svae_.optimizer,svae_.SVAE_obj,svae_.y_generate_mean,learning_rate], feed_dict={y: batch})
                     # Update average loss
                     train_l += l/len(batches)
                 if train_l>best_l:
                     best_l = train_l
                 # Print info for previous epoch
                 print("Epoch {} done, took {:.2f}s, learning rate: {:10.2e}".format(epoch,time.time()-start_time,lr))
-                print("Epoch loss: {:10.2e}, Best train loss: {:10.2e}".format(train_l,best_l))
-                """
+                print("Epoch loss: {:.1f}, Best train loss: {:.1f}".format(train_l,best_l))
                 # Writing csv file with results and saving models
                 Trainwriter.writerow([epoch + 1, train_l])
-                saver.save(sess,DST)
-                """
-                save_reconstruct(batch[:nexamples], recon_mean[:nexamples], "./reconstruct")
+                #saver.save(sess,DST)
+                img = data[np.random.randint(0, high=data_size, size=BATCH_SIZE)]
+                bernouilli_mean= sess.run(svae_.y_reconstr_mean, feed_dict={y: img})
+                save_reconstruct(img[:nexamples], bernouilli_mean[:nexamples], "./reconstruct")
+                #save_reconstruct(batch[:nexamples], recon_mean[:nexamples], "./reconstruct")
                 save_gene(gener_mean, "./generate")
 
         if mode_=="reconstruct":
@@ -247,8 +257,8 @@ def main(nets_archi,data,mode_,name="test"):
 if __name__ == '__main__':
     ###### Load and get data ######
     data = shuffle(data_processing.get_data())
-    data = data[:1*BATCH_SIZE]
-    #data = data[:10000]
+    #data = data[:1*BATCH_SIZE]
+    data = data[:1000]
     # Reshape data
     data = np.reshape(data,[-1,IMAGE_SIZE*IMAGE_SIZE])
     # Convert to binary

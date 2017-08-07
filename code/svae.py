@@ -145,7 +145,7 @@ class SVAE(object):
 
     def _build_generator_net(self,input_):
         # Foward pass for generator network
-        y_reconstr_mean = self.generatornet._build_network(input_)# shape: [batch,P*P]
+        y_reconstr_mean = self.generatornet._build_network(input_)# shape: [batch,IMAGE_SIZE*IMAGE_SIZE]
         return y_reconstr_mean
 
     def _local_meanfield(self,node_potential,gaussian_global,label_global,label_stats):
@@ -263,8 +263,14 @@ class SVAE(object):
         shape:
             - gaussian_mean:  [nsamples,K,N,N+1]
         """
+        """
         x = tf.squeeze(sample_gaussian(gaussian_mean,data_type()),axis=-1)# shape: [1,K,N]
         x_list = tf.unstack(x,num=None,axis=1)# shape: K*[1,N]
         # Build generator network and compute params of the obs variables from samples
         logits = tf.stack([tf.squeeze(self._build_generator_net(x_list[i])) for i in range(len(x_list))],axis=1)# shape: [K,IMAGE_SIZE*IMAGE_SIZE]
         self.y_generate_mean = tf.sigmoid(logits)# shape: [1,K,IMAGE_SIZE*IMAGE_SIZE]
+        """
+        x = tf.squeeze(sample_gaussian(gaussian_mean,data_type()))# shape: [K,N]
+        # Build generator network and compute params of the obs variables from samples
+        logits = self._build_generator_net(x)# shape: [K,IMAGE_SIZE*IMAGE_SIZE]
+        self.y_generate_mean = tf.sigmoid(logits)# shape: [K,IMAGE_SIZE*IMAGE_SIZE]
