@@ -115,10 +115,9 @@ class discrete(distributions):
         return tf.nn.softmax(nat_params,dim=1)
 
     def expectedstats(self, nat_params):
-        #logmean = nat_params
         mean_params = self.natural_to_standard(nat_params)
-        label_expectedstats = tf.exp(mean_params)
-        return label_expectedstats
+        #label_expectedstats = tf.exp(mean_params)
+        return mean_params
 
     def logZ(self,nat_params):
         return tf.reduce_logsumexp(nat_params,axis=1,keep_dims=False)

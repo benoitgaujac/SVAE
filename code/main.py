@@ -23,13 +23,13 @@ np.random.seed(0)
 tf.set_random_seed(0)
 
 IMAGE_SIZE = 28
-BATCH_SIZE = 512
-K = 10
-N = 20
-learning_rate_init = 0.001
-niter = 30
+BATCH_SIZE = 4
+K = 4
+N = 5
+learning_rate_init = 0.003
+niter = 10
 num_epochs = 100
-nexamples = 4
+nexamples = 3
 nsamples = 2
 
 """
@@ -42,7 +42,7 @@ parser.add_option('-s', '--mode', action='store', dest='mode',
 """
 
 ######################################## Models architectures ########################################
-#recognition_net = {"ninput":IMAGE_SIZE*IMAGE_SIZE,"nhidden_1":500,"nhidden_2":500,"noutput":N*(N+1)+1}
+#recognition_net = {"ninput":IMAGE_SIZE*IMAGE_SIZE,"nhidden_1":500,"nhidden_2":500,"noutput":N*(N+1)}
 recognition_net = {"ninput":IMAGE_SIZE*IMAGE_SIZE,"nhidden_1":512,"nhidden_2":512,"noutput":2*N}
 generator_net = {"ninput":N,"nhidden_1":512,"nhidden_2":512,"noutput":IMAGE_SIZE*IMAGE_SIZE}
 nets_archi = {"recog":recognition_net,"gener":generator_net}
@@ -129,8 +129,8 @@ def save_gene(bernouilli_mean, DST):
                 plt.title("Mean ", fontsize=10)
                 plt.imshow(mean[i], cmap="gray", interpolation=None)
             else:
-                plt.title("Sample " + str(j+1), fontsize=10)
-                plt.imshow(bernoulli_samples[i,j], cmap="gray", interpolation=None)
+                plt.title("Sample " + str(j), fontsize=10)
+                plt.imshow(bernoulli_samples[i,j-1], cmap="gray", interpolation=None)
         if not tf.gfile.Exists(DST):
             os.makedirs(DST)
         file_name = os.path.join(DST, "mixture" + str(i) + ".png")
@@ -218,7 +218,26 @@ def main(nets_archi,data,mode_,name="test"):
                 print(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
                 batches = data_processing.get_batches(data, BATCH_SIZE)
                 for batch in batches:
-                    _,l,gener_mean,lr = sess.run([svae_.optimizer,svae_.SVAE_obj,svae_.y_generate_mean,learning_rate], feed_dict={y: batch})
+                    _,l,g_glob,l_glob,l_stats_init,npot,kl,g_nat,l_nat,g_stats,l_stats,gener_mean,lr =sess.run([svae_.optimizer,
+                                                    svae_.SVAE_obj,
+                                                    gaussian_global,
+                                                    label_global,
+                                                    labels_stats_init_tiled,
+                                                    svae_.pot,
+                                                    svae_.kl_list,
+                                                    svae_.gauss_nat_list,
+                                                    svae_.label_nat_list,
+                                                    svae_.gauss_stats_list,
+                                                    svae_.label_stats_list,
+                                                    svae_.y_generate_mean,
+                                                    learning_rate], feed_dict={y: batch})
+                    """
+                    _,l,gener_mean,lr =sess.run([svae_.optimizer,
+                                                    svae_.SVAE_obj,
+                                                    svae_.y_generate_mean,
+                                                    learning_rate], feed_dict={y: batch})
+                    """
+
                     # Update average loss
                     train_l += l/len(batches)
                 if train_l>best_l:
@@ -229,7 +248,8 @@ def main(nets_archi,data,mode_,name="test"):
                 # Writing csv file with results and saving models
                 Trainwriter.writerow([epoch + 1, train_l])
                 #saver.save(sess,DST)
-                img = data[np.random.randint(0, high=data_size, size=BATCH_SIZE)]
+                #img = data[np.random.randint(0, high=data_size, size=BATCH_SIZE)]
+                img = batch
                 bernouilli_mean= sess.run(svae_.y_reconstr_mean, feed_dict={y: img})
                 save_reconstruct(img[:nexamples], bernouilli_mean[:nexamples], "./reconstruct")
                 #save_reconstruct(batch[:nexamples], recon_mean[:nexamples], "./reconstruct")
@@ -257,8 +277,8 @@ def main(nets_archi,data,mode_,name="test"):
 if __name__ == '__main__':
     ###### Load and get data ######
     data = shuffle(data_processing.get_data())
-    #data = data[:1*BATCH_SIZE]
-    data = data[:1000]
+    data = data[:1*BATCH_SIZE]
+    #data = data[:3000]
     # Reshape data
     data = np.reshape(data,[-1,IMAGE_SIZE*IMAGE_SIZE])
     # Convert to binary
