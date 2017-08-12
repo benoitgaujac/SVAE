@@ -13,7 +13,8 @@ from main import BATCH_SIZE
 tf.set_random_seed(0)
 
 ######################################## Utils functions ########################################
-norm_initializer = tf.random_normal_initializer(mean=0.10, stddev=0.1, dtype=tf.float32)
+mu_initializer = tf.random_normal_initializer(mean=0.0, stddev=.1, dtype=tf.float32)
+sigma_initializer = tf.random_normal_initializer(mean=0.0, stddev=0.1, dtype=tf.float32)
 one_initializer = tf.constant_initializer(1.)
 zero_initializer = tf.constant_initializer(0.0)
 
@@ -24,11 +25,12 @@ def init_cat(n_mixtures,params="global",dtype=tf.float32):
     """
     if params=="global":
         #discr_mean = tf.get_variable(params,[n_mixtures,1], initializer=one_initializer)
-        discr_mean = tf.get_variable(params, [n_mixtures,1], initializer=norm_initializer)
+        discr_mean = tf.get_variable(params, [n_mixtures,1], initializer=mu_initializer)
         logits = tf.nn.softmax(discr_mean,dim=0)
     elif params=="variational":
         #discr_mean = tf.ones(shape=[BATCH_SIZE,n_mixtures,1], dtype=dtype)# shape: [n_mixtures,1]
-        discr_mean = tf.random_normal(shape=[BATCH_SIZE,n_mixtures,1], mean=0.0, stddev=.1, dtype=dtype)# shape: [n_mixtures,1]
+        discr_mean = tf.random_normal(shape=[BATCH_SIZE,n_mixtures,1], mean=0.0, stddev=.01, dtype=dtype)# shape: [n_mixtures,1]
+        #discr_mean = tf.cast(tf.expand_dims(tf.multinomial(tf.log(10.0*tf.ones(shape=[BATCH_SIZE,2], dtype=dtype)), n_mixtures),axis=-1),dtype)# shape: [n_mixtures,1]
         logits = tf.nn.softmax(discr_mean,dim=1)
     else:
         raise Exception("Wrong type of parameters. No parameters initialized")
@@ -39,7 +41,7 @@ def init_gaussian(n_mixtures,dim,dtype=tf.float32):
     """
     Initialize means and covariance matrix for the gaussian mixtures components
     """
-    mu = tf.get_variable("mu_global", [n_mixtures,dim,1], initializer=norm_initializer)# shape: [n_mixtures,dim,1]
+    mu = tf.get_variable("mu_global", [n_mixtures,dim,1], initializer=mu_initializer)# shape: [n_mixtures,dim,1]
     # We have to enforce the covariance to be psd
     """
     #log_sigma = tf.get_variable("log_sigma_global", [n_mixtures,dim], initializer=zero_initializer)
@@ -47,8 +49,8 @@ def init_gaussian(n_mixtures,dim,dtype=tf.float32):
     sigma = tf.matrix_diag(tf.exp(log_sigma))# shape: [n_mixtures,dim,dim]
     """
     # General psd sigma
-    A = tf.Variable(tf.random_normal([n_mixtures,dim,dim],mean=0.0, stddev=0.01, dtype=dtype))# shape: [n_mixtures,dim,dim]
-    sigma = 0.5 * (tf.exp(A) + tf.transpose(tf.exp(A),perm=[0,2,1])) + dim*tf.eye(dim,batch_shape=[n_mixtures])# shape: [n_mixtures,dim,dim]
+    A = tf.get_variable("half_sigma_global", [n_mixtures,dim,dim], initializer=sigma_initializer)# shape: [n_mixtures,dim,dim]
+    sigma = 0.5 * (A + tf.transpose(A,perm=[0,2,1])) + dim*tf.eye(dim,batch_shape=[n_mixtures])# shape: [n_mixtures,dim,dim]
     return tf.concat([mu,sigma],axis=-1)# shape: [n_mixtures,dim,1+dim]
 
 def sample_gaussian(mean_params,dtype=tf.float32):
@@ -123,8 +125,8 @@ class SVAE(object):
 
     def _init_weights(self,recog_archi,gener_archi):
         # Initialize nn parameters
-        self.recognitionnet = nn.dense_net(recog_archi, "recog",data_type())
-        self.generatornet = nn.dense_net(gener_archi, "gener",data_type())
+        self.recognitionnet = nn.conv_net_4l(recog_archi, "recog",data_type())
+        self.generatornet = nn.deconv_net_4l(gener_archi, "gener",data_type())
 
     def _init_params(self):
         # Initialize parameters of the model \theta = (\pi, {(\mu_k, \Sigma_k)}_{k=1}^K)
@@ -139,18 +141,20 @@ class SVAE(object):
         # Outout of NN encode mu and the diag of sigma
         recog_mu = tf.reshape(recog_out[:,:self.N],[-1,1,self.N,1])# shape: [batch,1,N,1]
         # we enforce it to be nsd
+        # Diagonal sigma
         recog_sigma = tf.expand_dims(tf.matrix_diag(-tf.exp(recog_out[:,self.N:])),axis=1)# shape: [batch,1,N,N]
+        return tf.squeeze(vec(tf.concat([recog_mu,recog_sigma],axis=-1)),axis=1)# shape: [batch,N(N+1)]
         """
         # General psd sigma
-        log_recog_sigma = devec(tf.expand_dims(recog_out[:,self.N:],axis=1),self.N,self.N)# shape: [batch,1,N,N]
+        A = devec(tf.expand_dims(recog_out[:,self.N:],axis=1),self.N,self.N)# shape: [batch,1,N,N]
         # we enforce it to be nsd
-        recog_sigma = -(0.5 * (tf.exp(log_recog_sigma) + tf.transpose(tf.exp(log_recog_sigma),perm=[0,1,3,2])) + self.N*tf.eye(self.N,batch_shape=[1,1]))# shape: [batch,1,N,N]
+        recog_sigma = 0.5 * (A + tf.transpose(A,perm=[0,1,3,2])) + self.N*tf.eye(self.N,batch_shape=[1,1])# shape: [batch,1,N,N]
+        return tf.squeeze(vec(self.gaussian.standard_to_natural(tf.concat([recog_mu,recog_sigma],axis=-1))),axis=1)# shape: [batch,N(N+1)]
         """
-        return tf.squeeze(vec(tf.concat([recog_mu,recog_sigma],axis=-1)),axis=1)# shape: [batch,N(N+1)]
 
     def _build_generator_net(self,input_):
         # Foward pass for generator network
-        y_reconstr_mean = self.generatornet._build_network(input_)# shape: [batch,IMAGE_SIZE*IMAGE_SIZE]
+        y_reconstr_mean = self.generatornet._build_network(input_)# shape: [batch,IMAGE_SIZE,IMAGE_SIZE,1]
         return y_reconstr_mean
 
     def _local_meanfield(self,node_potential,gaussian_global,label_global,label_stats):
@@ -269,10 +273,10 @@ class SVAE(object):
         # Sample x from q, pass to generatornet
         self.x = sample_gaussian(self.gaussian.natural_to_standard(gaussian_natparams),data_type())# shape: [batch,1,N,1]
         # Build generator network and compute params of the obs variables from samples
-        logits = self._build_generator_net(tf.squeeze(self.x))# shape: [batch,IMAGE_SIZE*IMAGE_SIZE]
-        self.y_reconstr_mean = tf.nn.sigmoid(logits)
+        logits = self._build_generator_net(tf.squeeze(self.x))# shape: [batch,IMAGE_SIZE,IMAGE_SIZE,1]
+        self.y_reconstr_mean = tf.nn.sigmoid(logits)# shape: [batch,IMAGE_SIZE,IMAGE_SIZE,1]
         # Compute loglikeihood term
-        self.loglikelihood = -tf.nn.sigmoid_cross_entropy_with_logits(labels=y,logits=logits)
+        self.loglikelihood = -tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(labels=y,logits=logits),axis=[1,2,3])
         # Compute SVAE objective
         self.SVAE_obj = tf.reduce_sum(self.loglikelihood - self.local_KL)# sum over batch
         # Optimizer
@@ -282,9 +286,9 @@ class SVAE(object):
         """
         Generate sample from trained gaussian_mean
         shape:
-            - gaussian_mean:  [nsamples,K,N,N+1]
+            - gaussian_mean:  [1,K,N,N+1]
         """
-        x = tf.squeeze(sample_gaussian(gaussian_mean,data_type()))# shape: [K,N]
+        x = sample_gaussian(gaussian_mean,data_type())# shape: [K,N]
         # Build generator network and compute params of the obs variables from samples
-        logits = self._build_generator_net(x)# shape: [K,IMAGE_SIZE*IMAGE_SIZE]
-        self.y_generate_mean = tf.sigmoid(logits)# shape: [K,IMAGE_SIZE*IMAGE_SIZE]
+        logits = self._build_generator_net(tf.squeeze(x))# shape: [K,IMAGE_SIZE,IMAGE_SIZE,1]
+        self.y_generate_mean = tf.sigmoid(logits)# shape: [K,IMAGE_SIZE,IMAGE_SIZE,1]

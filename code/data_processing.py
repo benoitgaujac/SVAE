@@ -17,7 +17,6 @@ WORK_DIRECTORY = '../../data'
 IMAGE_SIZE = 28
 NUM_CHANNELS = 1
 PIXEL_DEPTH = 255
-BATCH_SIZE = 2
 
 ######################################## Data processing ########################################
 def maybe_download(filename):
@@ -57,20 +56,21 @@ def extract_labels(filename, num_images):
 def get_data():
     # download the data id needed
     train_data_filename = maybe_download('train-images-idx3-ubyte.gz')
-    #train_labels_filename = maybe_download('train-labels-idx1-ubyte.gz')
+    train_labels_filename = maybe_download('train-labels-idx1-ubyte.gz')
     test_data_filename = maybe_download('t10k-images-idx3-ubyte.gz')
-    #test_labels_filename = maybe_download('t10k-labels-idx1-ubyte.gz')
+    test_labels_filename = maybe_download('t10k-labels-idx1-ubyte.gz')
     # Extract it into numpy arrays.
     train_data = extract_data(train_data_filename, 60000)
-    #train_labels = extract_labels(train_labels_filename, 60000)
+    train_labels = extract_labels(train_labels_filename, 60000)
     test_data = extract_data(test_data_filename, 10000)
-    #test_labels = extract_labels(test_labels_filename, 10000)
+    test_labels = extract_labels(test_labels_filename, 10000)
     # Merge train and test_data
     data = np.concatenate((train_data,test_data))
-    #labels = np.concatenate(train_labels,test_labels)
+    #labels = np.concatenate((train_labels,test_labels))
+    #return data[np.where(np.isin(labels,[0,3,2,9]))]
     return data
 
-def get_batches(images, batch_size=BATCH_SIZE):
+def get_batches(images, batch_size):
     batches = []
     #X = shuffle(images)
     X = images

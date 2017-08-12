@@ -18,19 +18,19 @@ import nn
 import svae
 
 
-## Initialize seeds
-np.random.seed(0)
-tf.set_random_seed(0)
+# Initialize seeds
+tf.set_random_seed(time.localtime())
+np.random.seed(time.localtime())
 
 IMAGE_SIZE = 28
-BATCH_SIZE = 4
-K = 4
-N = 5
-learning_rate_init = 0.003
-niter = 10
-num_epochs = 100
-nexamples = 3
-nsamples = 2
+BATCH_SIZE = 512
+K = 10
+N = 10
+learning_rate_init = 0.001
+niter = 20
+num_epochs = 200
+nexamples = 5
+nsamples = 1
 
 """
 from optparse import OptionParser
@@ -42,9 +42,9 @@ parser.add_option('-s', '--mode', action='store', dest='mode',
 """
 
 ######################################## Models architectures ########################################
-#recognition_net = {"ninput":IMAGE_SIZE*IMAGE_SIZE,"nhidden_1":500,"nhidden_2":500,"noutput":N*(N+1)}
-recognition_net = {"ninput":IMAGE_SIZE*IMAGE_SIZE,"nhidden_1":512,"nhidden_2":512,"noutput":2*N}
-generator_net = {"ninput":N,"nhidden_1":512,"nhidden_2":512,"noutput":IMAGE_SIZE*IMAGE_SIZE}
+#recognition_net = {"ninput":IMAGE_SIZE*IMAGE_SIZE,"nhidden_1":512,"nhidden_2":512,"nhidden_3":512,"noutput":N*(N+1)}
+recognition_net = {"ninput":IMAGE_SIZE,"num_filters":32,"size_filters_1":5,"size_filters_2":3,"fc":128,"noutput":2*N}
+generator_net = {"ninput":N,"fc":128,"num_filters":32,"size_filters_1":3,"size_filters_2":5,"noutput":IMAGE_SIZE}
 nets_archi = {"recog":recognition_net,"gener":generator_net}
 
 ######################################## Utils ########################################
@@ -66,10 +66,10 @@ def save_reconstruct(original, bernouilli_mean, DST):
     mean =  mean.astype("int32")
     bernoulli_samples = []
     for i in range(nexamples):
-        distribution = tf.contrib.distributions.Bernoulli(probs=tf.tile(tf.expand_dims(bernouilli_mean[i],axis=0),[nsamples,1]), dtype=tf.float32)# shape: [nsamples,28*28]
-        samples = tf.reshape(distribution.sample(),[-1,IMAGE_SIZE,IMAGE_SIZE])*255.0# shape: [nexamples,nsamples,28,28]
+        distribution = tf.contrib.distributions.Bernoulli(probs=tf.tile(tf.expand_dims(tf.squeeze(bernouilli_mean[i],axis=-1),axis=0),[nsamples,1,1]), dtype=tf.float32)# shape: [nsamples,28,28]
+        samples = tf.reshape(distribution.sample(),[-1,IMAGE_SIZE,IMAGE_SIZE])*255.0# shape: [nsamples,28,28]
         bernoulli_samples.append(samples.eval().astype("int32"))
-    bernoulli_samples = np.stack(bernoulli_samples,axis=0)
+    bernoulli_samples = np.stack(bernoulli_samples,axis=0)# shape: [nexamples,nsamples,28,28]
     """
     for i in range(nexamples):
         fig = plt.figure()
@@ -116,8 +116,8 @@ def save_gene(bernouilli_mean, DST):
     mean =  mean.astype("int32")
     bernoulli_samples = []
     for i in range(K):
-        distribution = tf.contrib.distributions.Bernoulli(probs=tf.tile(tf.expand_dims(bernouilli_mean[i],axis=0),[nsamples,1]), dtype=tf.float32)# shape: [nsamples,28*28]
-        samples = tf.reshape(distribution.sample(),[-1,IMAGE_SIZE,IMAGE_SIZE])*255.0# shape: [K,nsamples,28,28]
+        distribution = tf.contrib.distributions.Bernoulli(probs=tf.tile(tf.expand_dims(tf.squeeze(bernouilli_mean[i],axis=-1),axis=0),[nsamples,1,1]), dtype=tf.float32)# shape: [nsamples,28*28]
+        samples = tf.reshape(distribution.sample(),[-1,IMAGE_SIZE,IMAGE_SIZE])*255.0# shape: [nsamples,28,28]
         bernoulli_samples.append(samples.eval().astype("int32"))
     bernoulli_samples = np.stack(bernoulli_samples,axis=0)
     for i in range(K):
@@ -149,7 +149,7 @@ def main(nets_archi,data,mode_,name="test"):
     print("\nPreparing variables and building model ...")
 
     ###### Create tf placeholder for obs variables ######
-    y = tf.placeholder(dtype=data_type(), shape=(None, IMAGE_SIZE*IMAGE_SIZE))
+    y = tf.placeholder(dtype=data_type(), shape=(None, IMAGE_SIZE,IMAGE_SIZE,1))
 
     ###### Create varaible for batch ######
     batch = tf.Variable(0, dtype=data_type())
@@ -172,24 +172,31 @@ def main(nets_archi,data,mode_,name="test"):
                         max_iter=niter)             # number of iterations in the coordinate block ascent
 
     ###### Initialize parameters ######
-    labels_stats_init,label_global_mean,gauss_global_mean = svae_._init_params()
+    labels_stats_init_tiled,label_global_mean,gauss_global_mean = svae_._init_params()
     # We need to tile the natural parameters for each inputs in batch (inputs are iid)
     tile_shape = [BATCH_SIZE,1,1,1]
     gauss_global_mean_tiled = tf.tile(tf.expand_dims(gauss_global_mean,0),tile_shape)# shape: [batch,n_mixtures,dim,1+dim]
     label_global_mean_tiled = tf.tile(tf.expand_dims(label_global_mean,0),tile_shape[:-1])# shape: [batch,n_mixtures,1]
-    labels_stats_init_tiled = tf.tile(tf.expand_dims(labels_stats_init,0),tile_shape[:-1])# shape: [batch,K,1]
+    #labels_stats_init_tiled = tf.tile(tf.expand_dims(labels_stats_init,0),tile_shape[:-1])# shape: [batch,n_mixtures,1]
     # We convert the global mean parameters to global natural parameters
     gaussian_global = svae_.gaussian.standard_to_natural(gauss_global_mean_tiled)
     label_global = svae_.labels.standard_to_natural(label_global_mean_tiled)
 
     ###### Build loss and optimizer ######
-    svae_._create_loss_optimizer(gaussian_global,label_global,
-                                        labels_stats_init_tiled,
-                                        y,
-                                        learning_rate,
-                                        batch)
+    svae_._create_loss_optimizer(gaussian_global,
+                                    label_global,
+                                    labels_stats_init_tiled,
+                                    y,
+                                    learning_rate,
+                                    batch)
+
     ###### Build generator ######
     svae_._generate(tf.expand_dims(gauss_global_mean,0))
+
+    ###### Create a summaries ######
+    tf.summary.scalar("local_kl", tf.reduce_sum(svae_.local_KL))
+    tf.summary.scalar("loglike", tf.reduce_sum(svae_.loglikelihood))
+    summary_op = tf.summary.merge_all()
 
     ###### Initializer ######
     init = tf.global_variables_initializer()
@@ -206,9 +213,19 @@ def main(nets_archi,data,mode_,name="test"):
             csvfileTrain = open(os.path.join(csv_path,name) + ".csv", 'w')
             Trainwriter = csv.writer(csvfileTrain, delimiter=';',)
             Trainwriter.writerow(['Num Epoch', 'objective'])
+
+            # Initialize variables
             sess.run(tf.global_variables_initializer())
+
+            # Create summary writer
+            log_path = "./Logs"
+            if not tf.gfile.Exists(log_path):
+                os.makedirs(log_path)
+            summary_writer = tf.summary.FileWriter(log_path, graph=sess.graph)
+
             # initialize performance indicators
             best_l = -10000000000.0
+
             #training loop
             print("\nStart training ...")
             for epoch in range(num_epochs):
@@ -217,43 +234,45 @@ def main(nets_archi,data,mode_,name="test"):
                 print("")
                 print(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
                 batches = data_processing.get_batches(data, BATCH_SIZE)
-                for batch in batches:
-                    _,l,g_glob,l_glob,l_stats_init,npot,kl,g_nat,l_nat,g_stats,l_stats,gener_mean,lr =sess.run([svae_.optimizer,
+                for i,batch in enumerate(batches):
+                    _,l,g_glob,l_glob,g_glob_mean,l_glob_mean,l_stats_init,npot,labels_stats,gmean,x,gener_mean,lr,smmry =sess.run([svae_.optimizer,
                                                     svae_.SVAE_obj,
                                                     gaussian_global,
                                                     label_global,
+                                                    gauss_global_mean,
+                                                    label_global_mean,
                                                     labels_stats_init_tiled,
-                                                    svae_.pot,
-                                                    svae_.kl_list,
-                                                    svae_.gauss_nat_list,
-                                                    svae_.label_nat_list,
-                                                    svae_.gauss_stats_list,
-                                                    svae_.label_stats_list,
+                                                    svae_.node_potential,
+                                                    svae_.label_stats,
+                                                    svae_.gaussian_mean,
+                                                    svae_.x,
                                                     svae_.y_generate_mean,
-                                                    learning_rate], feed_dict={y: batch})
-                    """
-                    _,l,gener_mean,lr =sess.run([svae_.optimizer,
-                                                    svae_.SVAE_obj,
-                                                    svae_.y_generate_mean,
-                                                    learning_rate], feed_dict={y: batch})
-                    """
+                                                    learning_rate,
+                                                    summary_op], feed_dict={y: batch})
+                    #if (epoch+1)%30000==0:
+                    #    pdb.set_trace()
+
+                    # Write summaries
+                    summary_writer.add_summary(smmry, epoch*len(batches) + i)
 
                     # Update average loss
                     train_l += l/len(batches)
                 if train_l>best_l:
                     best_l = train_l
+                    #img = data[np.random.randint(0, high=data_size, size=BATCH_SIZE)]
+                    img = batch
+                    bernouilli_mean= sess.run(svae_.y_reconstr_mean, feed_dict={y: img})
+                    save_reconstruct(img[:nexamples], bernouilli_mean[:nexamples], "./reconstruct")
+                    #save_reconstruct(batch[:nexamples], recon_mean[:nexamples], "./reconstruct")
+                    save_gene(gener_mean, "./generate")
+
                 # Print info for previous epoch
                 print("Epoch {} done, took {:.2f}s, learning rate: {:10.2e}".format(epoch,time.time()-start_time,lr))
                 print("Epoch loss: {:.1f}, Best train loss: {:.1f}".format(train_l,best_l))
+
                 # Writing csv file with results and saving models
                 Trainwriter.writerow([epoch + 1, train_l])
                 #saver.save(sess,DST)
-                #img = data[np.random.randint(0, high=data_size, size=BATCH_SIZE)]
-                img = batch
-                bernouilli_mean= sess.run(svae_.y_reconstr_mean, feed_dict={y: img})
-                save_reconstruct(img[:nexamples], bernouilli_mean[:nexamples], "./reconstruct")
-                #save_reconstruct(batch[:nexamples], recon_mean[:nexamples], "./reconstruct")
-                save_gene(gener_mean, "./generate")
 
         if mode_=="reconstruct":
             #Test for ploting images
@@ -277,10 +296,12 @@ def main(nets_archi,data,mode_,name="test"):
 if __name__ == '__main__':
     ###### Load and get data ######
     data = shuffle(data_processing.get_data())
-    data = data[:1*BATCH_SIZE]
-    #data = data[:3000]
+    #data = data[:1*BATCH_SIZE]
+    data = data[:20000]
+    """
     # Reshape data
     data = np.reshape(data,[-1,IMAGE_SIZE*IMAGE_SIZE])
+    """
     # Convert to binary
     print("Converting data to binary")
     data = data_processing.binarize(data)
