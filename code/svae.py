@@ -264,21 +264,21 @@ class SVAE(object):
             - label_stats_init:     [batch,K,1]
         """
         # Build recognition network and compute node_potential
-        self.node_potential = self._build_recognition_net(y)# shape: [batch,N(N+1)]
+        node_potential = self._build_recognition_net(y)# shape: [batch,N(N+1)]
         # Compute partial optimizers for surrogate objective
-        self.label_stats = self._meanfield_fixed_point(self.node_potential,gaussian_global,label_global,label_stats_init)# shape: [batch,K,1]
+        label_stats = self._meanfield_fixed_point(node_potential,gaussian_global,label_global,label_stats_init)# shape: [batch,K,1]
         # Compute local KL with partial otimized parameters
-        self.local_KL, (labels_natparams,gaussian_natparams) = self._local_meanfield(self.node_potential,gaussian_global,label_global,self.label_stats)
+        local_KL, (labels_natparams,gaussian_natparams) = self._local_meanfield(node_potential,gaussian_global,label_global,label_stats)
         self.gaussian_mean = self.gaussian.natural_to_standard(gaussian_natparams)
         # Sample x from q, pass to generatornet
-        self.x = sample_gaussian(self.gaussian.natural_to_standard(gaussian_natparams),data_type())# shape: [batch,1,N,1]
+        x = sample_gaussian(self.gaussian.natural_to_standard(gaussian_natparams),data_type())# shape: [batch,1,N,1]
         # Build generator network and compute params of the obs variables from samples
-        logits = self._build_generator_net(tf.squeeze(self.x))# shape: [batch,IMAGE_SIZE,IMAGE_SIZE,1]
+        logits = self._build_generator_net(tf.squeeze(x))# shape: [batch,IMAGE_SIZE,IMAGE_SIZE,1]
         self.y_reconstr_mean = tf.nn.sigmoid(logits)# shape: [batch,IMAGE_SIZE,IMAGE_SIZE,1]
         # Compute loglikeihood term
-        self.loglikelihood = -tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(labels=y,logits=logits),axis=[1,2,3])
+        loglikelihood = -tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(labels=y,logits=logits),axis=[1,2,3])
         # Compute SVAE objective
-        self.SVAE_obj = tf.reduce_sum(self.loglikelihood - self.local_KL)# sum over batch
+        self.SVAE_obj = tf.reduce_mean(loglikelihood - local_KL)# average over batch
         # Optimizer
         self.optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(-self.SVAE_obj,global_step=batch)
 
