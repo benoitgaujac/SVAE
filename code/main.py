@@ -6,6 +6,7 @@ import pdb
 import numpy as np
 import csv
 from sklearn.utils import shuffle
+
 import tensorflow as tf
 from PIL import Image
 import matplotlib.pyplot as plt
@@ -23,14 +24,13 @@ tf.set_random_seed(time.localtime())
 np.random.seed(time.localtime())
 
 IMAGE_SIZE = 28
-BATCH_SIZE = 512
+BATCH_SIZE = 2048
 K = 10
-N = 10
-learning_rate_init = 0.001
-niter = 20
-num_epochs = 200
+N = 20
+learning_rate_init = 0.003
+niter = 15
+num_epochs = 50
 nexamples = 5
-nsamples = 1
 
 """
 from optparse import OptionParser
@@ -64,82 +64,41 @@ def save_reconstruct(original, bernouilli_mean, DST):
     orig = orig.astype("int32")
     mean = np.reshape(bernouilli_mean,[-1,IMAGE_SIZE,IMAGE_SIZE])*255.0# shape: [nexamples, 28, 28]
     mean =  mean.astype("int32")
-    bernoulli_samples = []
-    for i in range(nexamples):
-        distribution = tf.contrib.distributions.Bernoulli(probs=tf.tile(tf.expand_dims(tf.squeeze(bernouilli_mean[i],axis=-1),axis=0),[nsamples,1,1]), dtype=tf.float32)# shape: [nsamples,28,28]
-        samples = tf.reshape(distribution.sample(),[-1,IMAGE_SIZE,IMAGE_SIZE])*255.0# shape: [nsamples,28,28]
-        bernoulli_samples.append(samples.eval().astype("int32"))
-    bernoulli_samples = np.stack(bernoulli_samples,axis=0)# shape: [nexamples,nsamples,28,28]
-    """
-    for i in range(nexamples):
-        fig = plt.figure()
-        for j in range(2+nsamples):
-            plt.subplot(1,2+nsamples,j+1)
-            if j==0:
-                plt.title("Original", fontsize=10)
-                plt.imshow(orig[i], cmap="gray", interpolation=None)
-            elif j==1:
-                plt.title("Bernouilli mean", fontsize=10)
-                plt.imshow(mean[i], cmap="gray", interpolation=None)
-            else:
-                plt.title("Sample " + str(j-1), fontsize=10)
-                plt.imshow(bernoulli_samples[i,j-2], cmap="gray", interpolation=None)
-            plt.axis("on")
-        if not tf.gfile.Exists(DST):
-            os.makedirs(DST)
-        file_name = os.path.join(DST, "Example" + str(i) + ".png")
-        fig.savefig(file_name)
-        plt.close()
-    """
     fig = plt.figure()
-    for i in range(nexamples):
-        for j in range(2+nsamples):
-            plt.subplot(2+nsamples,nexamples,j*nexamples+i+1)
-            plt.axis("off")
-            if j==0:
-                #plt.title("Original", fontsize=10)
-                plt.imshow(orig[i], cmap="gray", interpolation=None)
-            elif j==1:
-                #plt.title("Bernouilli mean", fontsize=10)
-                plt.imshow(mean[i], cmap="gray", interpolation=None)
-            else:
-                #plt.title("Sample " + str(j-1), fontsize=10)
-                plt.imshow(bernoulli_samples[i,j-2], cmap="gray", interpolation=None)
+    for i in range(2*nexamples):
+        plt.subplot(2,nexamples,i+1)
+        plt.axis("off")
+        if i<nexamples:
+            plt.title("Original", fontsize=10)
+            plt.imshow(orig[i], cmap="gray", interpolation=None)
+        else :
+            plt.title("Reconstruct", fontsize=10)
+            plt.imshow(mean[i-nexamples], cmap="gray", interpolation=None)
     if not tf.gfile.Exists(DST):
         os.makedirs(DST)
-    file_name = os.path.join(DST, "Example.png")
+    file_name = os.path.join(DST, "reconstruct.png")
     fig.savefig(file_name)
     plt.close()
 
 def save_gene(bernouilli_mean, DST):
-    mean = np.reshape(bernouilli_mean,[-1,IMAGE_SIZE,IMAGE_SIZE])*255.0# shape: [K, 28, 28]
-    mean =  mean.astype("int32")
-    bernoulli_samples = []
+    mean = bernouilli_mean*255.0# shape: [K, nexample, 28, 28]
+    mean =  mean.astype("int32")# shape: [K, nexample, 28, 28]
+    fig = plt.figure()
     for i in range(K):
-        distribution = tf.contrib.distributions.Bernoulli(probs=tf.tile(tf.expand_dims(tf.squeeze(bernouilli_mean[i],axis=-1),axis=0),[nsamples,1,1]), dtype=tf.float32)# shape: [nsamples,28*28]
-        samples = tf.reshape(distribution.sample(),[-1,IMAGE_SIZE,IMAGE_SIZE])*255.0# shape: [nsamples,28,28]
-        bernoulli_samples.append(samples.eval().astype("int32"))
-    bernoulli_samples = np.stack(bernoulli_samples,axis=0)
-    for i in range(K):
-        fig = plt.figure()
-        for j in range(nsamples+1):
-            plt.subplot(1,nsamples+1,j+1)
+        for j in range(nexamples):
+            plt.subplot(K,nexamples,nexamples*i+j+1)
             plt.axis("off")
-            if j==0:
-                plt.title("Mean ", fontsize=10)
-                plt.imshow(mean[i], cmap="gray", interpolation=None)
-            else:
-                plt.title("Sample " + str(j), fontsize=10)
-                plt.imshow(bernoulli_samples[i,j-1], cmap="gray", interpolation=None)
-        if not tf.gfile.Exists(DST):
-            os.makedirs(DST)
-        file_name = os.path.join(DST, "mixture" + str(i) + ".png")
-        fig.savefig(file_name)
-        plt.close()
+            plt.imshow(mean[i,j], cmap="gray", interpolation=None)
+    if not tf.gfile.Exists(DST):
+        os.makedirs(DST)
+    file_name = os.path.join(DST, "mixtures.png")
+    fig.savefig(file_name)
+    plt.close()
 
 ######################################## Main ########################################
-def main(nets_archi,data,mode_,name="test"):
-    data_size = data.shape[0]
+def main(nets_archi,train_data,test_data,mode_,name="test"):
+    # Preprocessing data
+    data_size = train_data.shape[0]
     # Create weights DST dir
     DST = create_DST(name)
 
@@ -150,6 +109,7 @@ def main(nets_archi,data,mode_,name="test"):
 
     ###### Create tf placeholder for obs variables ######
     y = tf.placeholder(dtype=data_type(), shape=(None, IMAGE_SIZE,IMAGE_SIZE,1))
+    normal_mean = tf.placeholder(dtype=data_type(), shape=(K,N,N+1))
 
     ###### Create varaible for batch ######
     batch = tf.Variable(0, dtype=data_type())
@@ -157,8 +117,8 @@ def main(nets_archi,data,mode_,name="test"):
     learning_rate = tf.train.exponential_decay(
                     learning_rate_init,     # Base learning rate.
                     batch * BATCH_SIZE,     # Current index into the dataset.
-                    20*data_size,              # Decay step.
-                    0.99,                   # Decay rate.
+                    10*data_size,              # Decay step.
+                    0.95,                   # Decay rate.
                     staircase=True)
 
     ###### Create instance SVAE ######
@@ -177,7 +137,6 @@ def main(nets_archi,data,mode_,name="test"):
     tile_shape = [BATCH_SIZE,1,1,1]
     gauss_global_mean_tiled = tf.tile(tf.expand_dims(gauss_global_mean,0),tile_shape)# shape: [batch,n_mixtures,dim,1+dim]
     label_global_mean_tiled = tf.tile(tf.expand_dims(label_global_mean,0),tile_shape[:-1])# shape: [batch,n_mixtures,1]
-    #labels_stats_init_tiled = tf.tile(tf.expand_dims(labels_stats_init,0),tile_shape[:-1])# shape: [batch,n_mixtures,1]
     # We convert the global mean parameters to global natural parameters
     gaussian_global = svae_.gaussian.standard_to_natural(gauss_global_mean_tiled)
     label_global = svae_.labels.standard_to_natural(label_global_mean_tiled)
@@ -191,12 +150,7 @@ def main(nets_archi,data,mode_,name="test"):
                                     batch)
 
     ###### Build generator ######
-    svae_._generate(tf.expand_dims(gauss_global_mean,0))
-
-    ###### Create a summaries ######
-    tf.summary.scalar("local_kl", tf.reduce_sum(svae_.local_KL))
-    tf.summary.scalar("loglike", tf.reduce_sum(svae_.loglikelihood))
-    summary_op = tf.summary.merge_all()
+    svae_._generate(tf.tile(tf.expand_dims(normal_mean,0),[nexamples,1,1,1]))
 
     ###### Initializer ######
     init = tf.global_variables_initializer()
@@ -212,16 +166,10 @@ def main(nets_archi,data,mode_,name="test"):
                 os.makedirs(csv_path)
             csvfileTrain = open(os.path.join(csv_path,name) + ".csv", 'w')
             Trainwriter = csv.writer(csvfileTrain, delimiter=';',)
-            Trainwriter.writerow(['Num Epoch', 'objective'])
+            Trainwriter.writerow(['Num Epoch', 'train loss', 'test_loss'])
 
             # Initialize variables
             sess.run(tf.global_variables_initializer())
-
-            # Create summary writer
-            log_path = "./Logs"
-            if not tf.gfile.Exists(log_path):
-                os.makedirs(log_path)
-            summary_writer = tf.summary.FileWriter(log_path, graph=sess.graph)
 
             # initialize performance indicators
             best_l = -10000000000.0
@@ -230,82 +178,74 @@ def main(nets_archi,data,mode_,name="test"):
             print("\nStart training ...")
             for epoch in range(num_epochs):
                 start_time = time.time()
-                train_l = 0.0
                 print("")
                 print(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
-                batches = data_processing.get_batches(data, BATCH_SIZE)
+                # Training loop
+                train_l = 0.0
+                batches = data_processing.get_batches(train_data, BATCH_SIZE)
                 for i,batch in enumerate(batches):
-                    _,l,g_glob,l_glob,g_glob_mean,l_glob_mean,l_stats_init,npot,labels_stats,gmean,x,gener_mean,lr,smmry =sess.run([svae_.optimizer,
-                                                    svae_.SVAE_obj,
-                                                    gaussian_global,
-                                                    label_global,
-                                                    gauss_global_mean,
-                                                    label_global_mean,
-                                                    labels_stats_init_tiled,
-                                                    svae_.node_potential,
-                                                    svae_.label_stats,
-                                                    svae_.gaussian_mean,
-                                                    svae_.x,
-                                                    svae_.y_generate_mean,
-                                                    learning_rate,
-                                                    summary_op], feed_dict={y: batch})
-                    #if (epoch+1)%30000==0:
-                    #    pdb.set_trace()
-
-                    # Write summaries
-                    summary_writer.add_summary(smmry, epoch*len(batches) + i)
-
+                    _,l,lr =sess.run([svae_.optimizer,svae_.SVAE_obj,
+                                                    learning_rate],
+                                                    feed_dict={y: batch})
                     # Update average loss
                     train_l += l/len(batches)
-                if train_l>best_l:
-                    best_l = train_l
-                    #img = data[np.random.randint(0, high=data_size, size=BATCH_SIZE)]
-                    img = batch
-                    bernouilli_mean= sess.run(svae_.y_reconstr_mean, feed_dict={y: img})
-                    save_reconstruct(img[:nexamples], bernouilli_mean[:nexamples], "./reconstruct")
-                    #save_reconstruct(batch[:nexamples], recon_mean[:nexamples], "./reconstruct")
-                    save_gene(gener_mean, "./generate")
 
+                # Testing loop
+                test_l = 0.0
+                batches = data_processing.get_batches(test_data, BATCH_SIZE)
+                for i,batch in enumerate(batches):
+                    l =sess.run(svae_.SVAE_obj,feed_dict={y: batch})
+                    # Update average loss
+                    test_l += l/len(batches)
+
+                # Update best perf and save model
+                if test_l>best_l:
+                    best_l = test_l
+                    if epoch>20:
+                        saver.save(sess,DST)
+                        print("model saved.")
                 # Print info for previous epoch
                 print("Epoch {} done, took {:.2f}s, learning rate: {:10.2e}".format(epoch,time.time()-start_time,lr))
-                print("Epoch loss: {:.1f}, Best train loss: {:.1f}".format(train_l,best_l))
+                print("Train loss: {:.3f}, Test loss: {:.3f},Best test loss: {:.3f}".format(train_l,test_l,best_l))
 
                 # Writing csv file with results and saving models
-                Trainwriter.writerow([epoch + 1, train_l])
-                #saver.save(sess,DST)
+                Trainwriter.writerow([epoch + 1, train_l, test_l])
 
         if mode_=="reconstruct":
-            #Test for ploting images
-            if not tf.gfile.Exists(DST+".ckpt.meta"):
+            #Plot reconstruction mean
+            if not tf.gfile.Exists(DST+".meta"):
                 raise Exception("no weights given")
-            saver.restore(sess, DST+".ckpt")
+            saver.restore(sess, DST)
             img = data[np.random.randint(0, high=data_size, size=BATCH_SIZE)]
             bernouilli_mean= sess.run(svae_.y_reconstr_mean, feed_dict={y: img})
             save_reconstruct(img[:nexamples], bernouilli_mean[:nexamples], "./reconstruct")
 
         if mode_=="generate":
             #Test for ploting images
-            if not tf.gfile.Exists(DST+".ckpt.meta"):
+            if not tf.gfile.Exists(DST+".meta"):
                 raise Exception("no weights given")
-            saver.restore(sess, DST+".ckpt")
+            saver.restore(sess, DST)
             gaussian_mean= sess.run(gauss_global_mean, feed_dict={})
-            bernouilli_mean= sess.run(svae_.y_generate_mean, feed_dict={gaussian_mean: gaussian_mean})
+            #pdb.set_trace()
+            bernouilli_mean = sess.run(svae_.y_generate_mean, feed_dict={normal_mean: gaussian_mean})
+            bernouilli_mean = np.transpose(np.reshape(bernouilli_mean,(nexamples,K,IMAGE_SIZE,IMAGE_SIZE)),(1,0,2,3))
             save_gene(bernouilli_mean, "./generate")
 
 
 if __name__ == '__main__':
     ###### Load and get data ######
+    train_data,test_data = data_processing.get_data()
+    #train_data = train_data[:40000]
+    """
     data = shuffle(data_processing.get_data())
     #data = data[:1*BATCH_SIZE]
-    data = data[:20000]
-    """
-    # Reshape data
-    data = np.reshape(data,[-1,IMAGE_SIZE*IMAGE_SIZE])
+    data = data[:10000]
     """
     # Convert to binary
     print("Converting data to binary")
-    data = data_processing.binarize(data)
-    main(nets_archi,data,"training")
+    train_data = data_processing.binarize(train_data)
+    test_data = data_processing.binarize(test_data)
+    main(nets_archi,train_data,test_data,"training","full")
 
     """
     TODO
