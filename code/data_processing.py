@@ -33,14 +33,14 @@ def maybe_download(filename):
 
 def extract_data(filename, num_images):
     """Extract the images into a 4D tensor [image index, y, x, channels].
-    Values are rescaled from [0, 255] down to [0.0, 1.0].
+    Values are centered and rescaled from [0, 255] down to [0.0, 1.0].
     """
     print('Extracting', filename)
     with gzip.open(filename) as bytestream:
         bytestream.read(16)
         buf = bytestream.read(IMAGE_SIZE * IMAGE_SIZE * num_images * NUM_CHANNELS)
         data = np.frombuffer(buf, dtype=np.uint8).astype(np.float32)
-        data = (data) / PIXEL_DEPTH
+        data = data/PIXEL_DEPTH
         data = data.reshape(num_images, IMAGE_SIZE, IMAGE_SIZE, NUM_CHANNELS)
         return data
 
@@ -64,11 +64,13 @@ def get_data():
     train_labels = extract_labels(train_labels_filename, 60000)
     test_data = extract_data(test_data_filename, 10000)
     test_labels = extract_labels(test_labels_filename, 10000)
+    """
     # Merge train and test_data
     data = np.concatenate((train_data,test_data))
-    #labels = np.concatenate((train_labels,test_labels))
-    #return data[np.where(np.isin(labels,[0,3,2,9]))]
-    return data
+    labels = np.concatenate((train_labels,test_labels))
+    return data[np.where(np.isin(labels,[9]))]
+    """
+    return train_data,test_data
 
 def get_batches(images, batch_size):
     batches = []
