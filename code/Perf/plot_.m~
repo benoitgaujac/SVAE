@@ -1,0 +1,10 @@
+formatSpec = '%f%f%f';
+perfs_1L    = readtable('full.csv','Delimiter',';','Format',formatSpec);
+perfs_2L    = readtable('full.csv','Delimiter',';','Format',formatSpec);
+
+f1 = figure
+plot(perfs_1L{:,1},perfs_1L{:,2},perfs_1L{:,1},perfs_1L{:,3},'LineWidth',.9)
+ylim([-340 -80])
+legend('train', 'test','location','southeast')
+xlabel('epochs') % x-axis label
+ylabel('objective L') % y-axis label
