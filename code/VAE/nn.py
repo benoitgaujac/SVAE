@@ -11,7 +11,7 @@ def weight_variable(shape,name):
     return tf.get_variable(name, shape, initializer=initializer)
 
 def bias_variable(shape,name):
-    initializer = tf.constant_initializer(0.1)
+    initializer = tf.constant_initializer(0.001)
     return tf.get_variable(name, shape, initializer=initializer)
 
 

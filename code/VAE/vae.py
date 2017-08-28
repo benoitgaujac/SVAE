@@ -87,7 +87,7 @@ class VAE(object):
     def _local_KL(self,recog_mu,recog_sigma):
         # Compute local KL
         recog_sigma_diag = tf.matrix_diag_part(recog_sigma)
-        kl = 1 + tf.log(tf.square(recog_sigma_diag))-tf.square(recog_mu) - tf.square(recog_sigma_diag)
+        kl = 1 + tf.log(tf.square(recog_sigma_diag)) - tf.square(recog_mu) - tf.square(recog_sigma_diag)
         return 0.5*tf.reduce_sum(kl,axis=-1)#shape: [batch,1]
 
     def _create_loss_optimizer(self,y,learning_rate,batch):

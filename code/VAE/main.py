@@ -25,8 +25,8 @@ np.random.seed(time.localtime())
 IMAGE_SIZE = 28
 BATCH_SIZE = 2048
 N = 20
-learning_rate_init = 0.003
-num_epochs = 50
+learning_rate_init = 0.001
+num_epochs = 100
 nexamples = 10
 
 """
@@ -40,8 +40,8 @@ parser.add_option('-s', '--mode', action='store', dest='mode',
 
 ######################################## Models architectures ########################################
 #recognition_net = {"ninput":IMAGE_SIZE*IMAGE_SIZE,"nhidden_1":512,"nhidden_2":512,"nhidden_3":512,"noutput":N*(N+1)}
-recognition_net = {"ninput":IMAGE_SIZE,"num_filters":32,"size_filters_1":5,"size_filters_2":3,"fc":128,"noutput":2*N}
-generator_net = {"ninput":N,"fc":128,"num_filters":32,"size_filters_1":3,"size_filters_2":5,"noutput":IMAGE_SIZE}
+recognition_net = {"ninput":IMAGE_SIZE,"num_filters":32,"size_filters_1":3,"size_filters_2":3,"fc":128,"noutput":2*N}
+generator_net = {"ninput":N,"fc":128,"num_filters":32,"size_filters_1":3,"size_filters_2":3,"noutput":IMAGE_SIZE}
 nets_archi = {"recog":recognition_net,"gener":generator_net}
 
 ######################################## Utils ########################################
@@ -78,14 +78,13 @@ def save_reconstruct(original, bernouilli_mean, DST):
     plt.close()
 
 def save_gene(bernouilli_mean, DST):
-    mean = bernouilli_mean*255.0# shape: [K, nexample, 28, 28]
-    mean =  mean.astype("int32")# shape: [K, nexample, 28, 28]
+    mean = bernouilli_mean*255.0# shape: [1, nexample, 28, 28]
+    mean =  mean.astype("int32")# shape: [1, nexample, 28, 28]
     fig = plt.figure()
-    for i in range(K):
-        for j in range(nexamples):
-            plt.subplot(K,nexamples,nexamples*i+j+1)
-            plt.axis("off")
-            plt.imshow(mean[i,j], cmap="gray", interpolation=None)
+    for j in range(nexamples):
+        plt.subplot(1,nexamples,j+1)
+        plt.axis("off")
+        plt.imshow(mean[0,j], cmap="gray", interpolation=None)
     if not tf.gfile.Exists(DST):
         os.makedirs(DST)
     file_name = os.path.join(DST, "mixtures.png")
@@ -113,8 +112,8 @@ def main(nets_archi,train_data,test_data,mode_,name="test"):
     learning_rate = tf.train.exponential_decay(
                     learning_rate_init,     # Base learning rate.
                     batch * BATCH_SIZE,     # Current index into the dataset.
-                    10*data_size,              # Decay step.
-                    0.95,                   # Decay rate.
+                    15*data_size,              # Decay step.
+                    0.98,                   # Decay rate.
                     staircase=True)
 
     ###### Create instance SVAE ######
@@ -163,9 +162,10 @@ def main(nets_archi,train_data,test_data,mode_,name="test"):
                 train_l = 0.0
                 batches = data_processing.get_batches(train_data, BATCH_SIZE)
                 for i,batch in enumerate(batches):
-                    _,l,lr =sess.run([vae_.optimizer,vae_.VAE_obj,
-                                                    learning_rate],
-                                                    feed_dict={y: batch})
+                    _,l,lr =sess.run([vae_.optimizer,
+                                        vae_.VAE_obj,
+                                        learning_rate],
+                                        feed_dict={y: batch})
                     # Update average loss
                     train_l += l/len(batches)
 
