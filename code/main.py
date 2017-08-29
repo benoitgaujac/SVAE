@@ -117,8 +117,8 @@ def main(nets_archi,train_data,test_data,mode_,name="test"):
     learning_rate = tf.train.exponential_decay(
                     learning_rate_init,     # Base learning rate.
                     batch * BATCH_SIZE,     # Current index into the dataset.
-                    10*data_size,              # Decay step.
-                    0.95,                   # Decay rate.
+                    15*data_size,              # Decay step.
+                    0.98,                   # Decay rate.
                     staircase=True)
 
     ###### Create instance SVAE ######
