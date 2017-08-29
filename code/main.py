@@ -26,7 +26,7 @@ np.random.seed(time.localtime())
 IMAGE_SIZE = 28
 BATCH_SIZE = 2048
 K = 10
-N = 20
+N = 10
 learning_rate_init = 0.003
 niter = 15
 num_epochs = 50
@@ -76,7 +76,7 @@ def save_reconstruct(original, bernouilli_mean, DST):
             plt.imshow(mean[i-nexamples], cmap="gray", interpolation=None)
     if not tf.gfile.Exists(DST):
         os.makedirs(DST)
-    file_name = os.path.join(DST, "reconstruct.png")
+    file_name = os.path.join(DST, "reconstruct_test.png")
     fig.savefig(file_name)
     plt.close()
 
@@ -216,7 +216,7 @@ def main(nets_archi,train_data,test_data,mode_,name="test"):
             if not tf.gfile.Exists(DST+".meta"):
                 raise Exception("no weights given")
             saver.restore(sess, DST)
-            img = data[np.random.randint(0, high=data_size, size=BATCH_SIZE)]
+            img = test_data[np.random.randint(0, high=test_data.shape[0], size=BATCH_SIZE)]
             bernouilli_mean= sess.run(svae_.y_reconstr_mean, feed_dict={y: img})
             save_reconstruct(img[:nexamples], bernouilli_mean[:nexamples], "./reconstruct")
 
@@ -234,7 +234,7 @@ def main(nets_archi,train_data,test_data,mode_,name="test"):
 
 if __name__ == '__main__':
     ###### Load and get data ######
-    train_data,test_data = data_processing.get_data()
+    train_data,test_data = data_processing.get_data("MNIST")
     #train_data = train_data[:40000]
     """
     data = shuffle(data_processing.get_data())

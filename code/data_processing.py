@@ -6,26 +6,27 @@ import numpy as np
 from six.moves import urllib
 from sklearn.utils import shuffle
 import tensorflow as tf
-from PIL import Image
 
 ## Initialize seeds
 np.random.seed(0)
 tf.set_random_seed(0)
 
-SOURCE_URL = 'http://yann.lecun.com/exdb/mnist/'
+MNIST_SOURCE_URL = 'http://yann.lecun.com/exdb/mnist/'
+FASHION_SOURCE_URL = 'http://fashion-mnist.s3-website.eu-central-1.amazonaws.com/'
+SOURCE_URL = {"MNIST":MNIST_SOURCE_URL,"FASHION":FASHION_SOURCE_URL}
 WORK_DIRECTORY = '../../data'
 IMAGE_SIZE = 28
 NUM_CHANNELS = 1
 PIXEL_DEPTH = 255
-
 ######################################## Data processing ########################################
-def maybe_download(filename):
+def maybe_download(name,filename):
     """Download the data from Yann's website, unless it's already here."""
-    if not tf.gfile.Exists(WORK_DIRECTORY):
-        tf.gfile.MakeDirs(WORK_DIRECTORY)
-    filepath = os.path.join(WORK_DIRECTORY, filename)
+    WORK_SUBDIRECTORY = os.path.join(WORK_DIRECTORY, name)
+    if not tf.gfile.Exists(WORK_SUBDIRECTORY):
+        tf.gfile.MakeDirs(WORK_SUBDIRECTORY)
+    filepath = os.path.join(WORK_SUBDIRECTORY, filename)
     if not tf.gfile.Exists(filepath):
-        filepath, _ = urllib.request.urlretrieve(SOURCE_URL + filename, filepath)
+        filepath, _ = urllib.request.urlretrieve(SOURCE_URL[name] + filename, filepath)
         with tf.gfile.GFile(filepath) as f:
             size = f.size()
         print('Successfully downloaded', filename, size, 'bytes.')
@@ -53,12 +54,12 @@ def extract_labels(filename, num_images):
         labels = np.frombuffer(buf, dtype=np.uint8).astype(np.int64)
     return labels
 
-def get_data():
+def get_data(name="MNIST"):
     # download the data id needed
-    train_data_filename = maybe_download('train-images-idx3-ubyte.gz')
-    train_labels_filename = maybe_download('train-labels-idx1-ubyte.gz')
-    test_data_filename = maybe_download('t10k-images-idx3-ubyte.gz')
-    test_labels_filename = maybe_download('t10k-labels-idx1-ubyte.gz')
+    train_data_filename = maybe_download(name,'train-images-idx3-ubyte.gz')
+    train_labels_filename = maybe_download(name,'train-labels-idx1-ubyte.gz')
+    test_data_filename = maybe_download(name,'t10k-images-idx3-ubyte.gz')
+    test_labels_filename = maybe_download(name,'t10k-labels-idx1-ubyte.gz')
     # Extract it into numpy arrays.
     train_data = extract_data(train_data_filename, 60000)
     train_labels = extract_labels(train_labels_filename, 60000)
