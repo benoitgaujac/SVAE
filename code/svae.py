@@ -176,6 +176,7 @@ class SVAE(object):
         kl = gaussian_kl+label_kl
         natparams = (label_natparam,gaussian_natparam)
         return kl, natparams
+
     def _meanfield_fixed_point(self,node_potential,gaussian_global,label_global,label_stats):
         """
         Compute partially optimizers of the surrogate objective.
