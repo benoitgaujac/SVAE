@@ -24,10 +24,10 @@ tf.set_random_seed(time.localtime())
 np.random.seed(time.localtime())
 
 IMAGE_SIZE = 28
-BATCH_SIZE = 2048
+BATCH_SIZE = 4056
 K = 12
 N = 15
-learning_rate_init = 0.005
+learning_rate_init = 0.004
 niter = 30
 num_epochs = 200
 nexamples = 5
@@ -117,8 +117,8 @@ def main(nets_archi,train_data,test_data,mode_,name="test"):
     learning_rate = tf.train.exponential_decay(
                     learning_rate_init,     # Base learning rate.
                     batch * BATCH_SIZE,     # Current index into the dataset.
-                    15*data_size,              # Decay step.
-                    0.95,                   # Decay rate.
+                    10*data_size,              # Decay step.
+                    0.98,                   # Decay rate.
                     staircase=True)
 
     ###### Create instance SVAE ######
