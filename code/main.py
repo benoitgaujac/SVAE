@@ -27,7 +27,7 @@ IMAGE_SIZE = 28
 BATCH_SIZE = 2048
 K = 10
 N = 15
-learning_rate_init = 0.004
+learning_rate_init = 0.001
 niter = 20
 num_epochs = 200
 nexamples = 5
@@ -43,8 +43,8 @@ parser.add_option('-s', '--mode', action='store', dest='mode',
 
 ######################################## Models architectures ########################################
 #recognition_net = {"ninput":IMAGE_SIZE*IMAGE_SIZE,"nhidden_1":512,"nhidden_2":512,"nhidden_3":512,"noutput":N*(N+1)}
-recognition_net = {"ninput":IMAGE_SIZE,"num_filters":32,"size_filters_1":5,"size_filters_2":3,"fc":128,"noutput":2*N}
-generator_net = {"ninput":N,"fc":128,"num_filters":32,"size_filters_1":3,"size_filters_2":5,"noutput":IMAGE_SIZE}
+recognition_net = {"ninput":IMAGE_SIZE,"num_filters":32,"size_filters_1":5,"size_filters_2":5,"fc":128,"noutput":2*N}
+generator_net = {"ninput":N,"fc":128,"num_filters":32,"size_filters_1":5,"size_filters_2":5,"noutput":IMAGE_SIZE}
 nets_archi = {"recog":recognition_net,"gener":generator_net}
 
 ######################################## Utils ########################################
