@@ -24,8 +24,8 @@ tf.set_random_seed(time.localtime())
 np.random.seed(time.localtime())
 
 IMAGE_SIZE = 28
-BATCH_SIZE = 4056
-K = 12
+BATCH_SIZE = 2048
+K = 10
 N = 15
 learning_rate_init = 0.004
 niter = 30
@@ -43,8 +43,8 @@ parser.add_option('-s', '--mode', action='store', dest='mode',
 
 ######################################## Models architectures ########################################
 #recognition_net = {"ninput":IMAGE_SIZE*IMAGE_SIZE,"nhidden_1":512,"nhidden_2":512,"nhidden_3":512,"noutput":N*(N+1)}
-recognition_net = {"ninput":IMAGE_SIZE,"num_filters":32,"size_filters_1":3,"size_filters_2":3,"fc":128,"noutput":2*N}
-generator_net = {"ninput":N,"fc":128,"num_filters":32,"size_filters_1":3,"size_filters_2":3,"noutput":IMAGE_SIZE}
+recognition_net = {"ninput":IMAGE_SIZE,"num_filters":32,"size_filters_1":5,"size_filters_2":3,"fc":128,"noutput":2*N}
+generator_net = {"ninput":N,"fc":128,"num_filters":32,"size_filters_1":3,"size_filters_2":5,"noutput":IMAGE_SIZE}
 nets_archi = {"recog":recognition_net,"gener":generator_net}
 
 ######################################## Utils ########################################
