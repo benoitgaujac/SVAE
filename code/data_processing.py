@@ -89,4 +89,5 @@ def get_batches(images, batch_size):
     return batches
 
 def binarize(images, threshold=0.1):
-    return (threshold < images).astype("float32")
+    return np.random.binomial(1, images)
+    #return (threshold < images).astype("float32")
