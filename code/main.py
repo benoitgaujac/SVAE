@@ -26,10 +26,10 @@ np.random.seed(time.localtime())
 IMAGE_SIZE = 28
 BATCH_SIZE = 2048
 K = 10
-N = 15
-learning_rate_init = 0.001
-niter = 20
-num_epochs = 200
+N = 25
+learning_rate_init = 0.0008
+niter = 15
+num_epochs = 250
 nexamples = 10
 
 """
@@ -117,8 +117,8 @@ def main(nets_archi,train_data,test_data,mode_,name="test"):
     learning_rate = tf.train.exponential_decay(
                     learning_rate_init,     # Base learning rate.
                     batch * BATCH_SIZE,     # Current index into the dataset.
-                    10*data_size,              # Decay step.
-                    0.99,                   # Decay rate.
+                    20*data_size,              # Decay step.
+                    0.97,                   # Decay rate.
                     staircase=True)
 
     ###### Create instance SVAE ######
@@ -245,7 +245,7 @@ if __name__ == '__main__':
     print("Converting data to binary")
     train_data = data_processing.binarize(train_data)
     test_data = data_processing.binarize(test_data)
-    main(nets_archi,train_data,test_data,"reconstruct","full")
+    main(nets_archi,train_data,test_data,"training","full")
 
     """
     TODO
